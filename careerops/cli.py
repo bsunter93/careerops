@@ -67,7 +67,7 @@ def cmd_reclassify(a):
     """Re-run classification over stored events after changing classify.py."""
     from .classify import classify
     conn = db.connect(a.db)
-    rows = conn.execute("SELECT id, subject, sender, type, body FROM events").fetchall()
+    rows = conn.execute("SELECT id, subject, sender, type, body FROM events\n                           WHERE source = 'gmail'").fetchall()
     changed = {}
     for r in rows:
         c = classify(r["subject"] or "", r["sender"] or "", r["body"] or "")
@@ -300,6 +300,37 @@ def cmd_demo(a):
         import subprocess; subprocess.run(["open", out])
 
 
+def cmd_apply(a):
+    """Record that you submitted an application. Adds an event; status derives from it."""
+    from datetime import date as _date
+    conn = db.connect(a.db)
+    row = conn.execute("""SELECT a.id, a.status, a.submitted_at, c.name company, r.title
+                          FROM applications a
+                          JOIN roles r ON r.id = a.role_id
+                          JOIN companies c ON c.id = r.company_id
+                          WHERE a.id = ?""", (a.id,)).fetchone()
+    if not row:
+        print(f"no application {a.id}"); return 1
+    if row["status"] != "prospect" and not a.force:
+        print(f"[{a.id}] {row['company']} - {row['title']} is already '{row['status']}'"
+              f" (submitted {row['submitted_at'] or 'unknown'}). Use --force to record again.")
+        return 1
+    when = a.date or _date.today().isoformat()
+    ts = f"{when} 12:00:00"
+    conn.execute("""UPDATE applications
+                    SET applied_on = ?, submitted_at = ?, channel = ?, referral = ?
+                    WHERE id = ?""",
+                 (when, ts, a.channel, 1 if a.referral else 0, a.id))
+    db.add_event(conn, a.id, ts, "submitted", "manual", confidence=1.0,
+                 subject=f"Applied to {row['company']} - {row['title']}",
+                 sender="(recorded by you)", raw=a.note or "")
+    st = db.recompute_status(conn, a.id)
+    conn.commit()
+    print(f"[{a.id}] {row['company']} - {row['title']}")
+    print(f"  recorded {when}{' (referral)' if a.referral else ''} -> status '{st}'")
+    print("  it will drop off Do next; the acknowledgement email will attach to this row")
+
+
 def cmd_dashboard(a):
     from .dashboard import write
     import subprocess, pathlib
@@ -390,6 +421,13 @@ def main(argv=None):
     sub.add_parser("analytics").set_defaults(fn=cmd_analytics)
     rs = sub.add_parser("resume"); rs.add_argument("id", type=int); rs.add_argument("--out")
     rs.set_defaults(fn=cmd_resume)
+    ap = sub.add_parser("apply"); ap.add_argument("id", type=int)
+    ap.add_argument("--date", help="YYYY-MM-DD, defaults to today")
+    ap.add_argument("--referral", action="store_true")
+    ap.add_argument("--channel", default="manual")
+    ap.add_argument("--note")
+    ap.add_argument("--force", action="store_true")
+    ap.set_defaults(fn=cmd_apply)
     dm = sub.add_parser("demo"); dm.add_argument("--out"); dm.add_argument("--open", action="store_true")
     dm.add_argument("--artifact", action="store_true"); dm.set_defaults(fn=cmd_demo)
     dh = sub.add_parser("dashboard"); dh.add_argument("--out"); dh.add_argument("--open", action="store_true")

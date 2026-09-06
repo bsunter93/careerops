@@ -266,6 +266,22 @@ the location plus everything else moves into the drill-down. `#actions` caps its
 and scrolls, sized so the Housekeeping group and its dormant count stay visible without
 scrolling. Rows still open in place, inside the panel.
 
+**A Do next item needs a way to be done.** Applying happens in a browser, and the system
+only learned about it when the acknowledgement email arrived, so a role stayed on the
+decision list after it had been actioned. `careerops apply <id>` records the submission as
+a `submitted` event with `source='manual'`; status still derives from the log, so the
+invariant holds and the row drops off on its own. The dashboard offers the command rather
+than writing the database, because a projection that writes state becomes a second record.
+
+**`reclassify` must only touch `source='gmail'`.** It ran over every event, so the
+classifier would re-judge a manually recorded submission from its empty subject line,
+demote it to noise, and silently revert the application to a prospect.
+
+**A recent-activity feed must show the source.** Portal-derived and hand-recorded events
+carry the date they were written down, not the date anything happened. Fifteen Google
+rejections logged from a portal snapshot in one sitting read as a mass rejection that
+arrived yesterday. Non-gmail rows are labelled with their source.
+
 **One decision list, and rows open in place.** "Do next" and "Where to apply next" are the
 same question, so they are one section. A row expands where it sits; making it filter the
 table instead meant clicking a company, being sent down the page, and clicking the same

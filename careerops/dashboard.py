@@ -166,8 +166,20 @@ def collect(conn) -> dict:
             "fetched": (r["fetched_at"] or "")[:10],
         }
 
+    # Recent activity. Answers "what has moved lately", which no chart here did: the
+    # funnel is all-time, weekly is counts, and Do next only shows what has NOT happened.
+    recent = [dict(r) for r in conn.execute("""
+        SELECT e.occurred_at, e.type, e.source, a.id AS app_id, c.name AS company,
+               r.title AS role, a.status, a.fit_score
+        FROM events e
+        JOIN applications a ON a.id = e.application_id
+        JOIN roles r        ON r.id = a.role_id
+        JOIN companies c    ON c.id = r.company_id
+        WHERE e.type NOT IN ('noise', 'unresolved')
+        ORDER BY e.occurred_at DESC LIMIT 14""")]
+
     return {
-        "apps": apps, "intel": intel,
+        "apps": apps, "intel": intel, "recent": recent,
         "funnel": funnel, "aging": aging, "weekly": weekly,
         "fit_hist": fit_hist, "fit_low": fit_low, "companies": companies,
         "totals": {
@@ -291,6 +303,14 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .act-x{flex:none;color:var(--faint);font:400 14px var(--mono);transition:transform .14s}
 .act.open .act-x{transform:rotate(90deg);color:var(--accent)}
 .act-d{padding:0 0 10px 13px}
+.rc{display:flex;align-items:baseline;gap:10px;padding:6px 6px;margin:0 -6px;
+  border-bottom:1px solid var(--grid);cursor:pointer;font-size:12.5px}
+.rc:last-child{border-bottom:0} .rc:hover{background:var(--soft)}
+.rc-d{flex:none;width:38px;font:400 11px var(--mono);color:var(--faint);text-align:right}
+.rc-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-t .ro{color:var(--muted)}
+.rc-e{flex:none;font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.4px}
+.rc-s{display:block;font-weight:400;font-size:9px;color:var(--faint);letter-spacing:.3px}
 .act-g{font:600 9.5px var(--mono);text-transform:uppercase;letter-spacing:.9px;color:var(--faint);
   margin:11px 0 3px;padding:0}
 .act-g:first-child{margin-top:0}
@@ -315,6 +335,7 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .dd-act button,.dd-act a{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;
   font:600 11.5px var(--sans);text-decoration:none}
 .dd-act button:hover,.dd-act a:hover{text-decoration:underline}
+.dd-act code{font:600 11px var(--mono);background:var(--grid);padding:1px 4px;border-radius:var(--r-ctl)}
 .act .t{font-weight:600;font-size:13.5px} .act .d{color:var(--muted);font-size:12px;margin-top:1px}
 .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px;min-height:0}
@@ -434,10 +455,11 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 
 <section id="s-overview">
 <div class="grid">
-  <div class="panel"><h3>Fit score distribution</h3><div class="cap" id="fitcap">Roles worth considering. Click a band to filter.</div><div id="c-fit"></div></div>
+  <div class="panel"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Click a row to pull it up in the table.</div><div id="c-recent"></div></div>
   <div class="panel dn" id="s-next"><h3>Do next</h3><div class="cap" id="dncap"></div><div id="actions"></div></div>
   <div class="panel"><h3>Aging, open applications</h3><div class="cap">Open applications by days since last activity. 22d+ is dormant.</div><div id="c-aging"></div><div class="sub">Funnel <span>all submitted, all time &middot; click a stage to filter</span></div><div id="c-funnel"></div></div>
   <div class="panel"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
+  <div class="panel wide" style="grid-column:1/-1"><h3>Fit score distribution</h3><div class="cap" id="fitcap">Roles worth considering. Click a band to filter.</div><div id="c-fit"></div></div>
   <div class="panel wide" style="grid-column:1/-1"><h3>By company</h3><div class="cap">Companies with 2+ applications. "Advanced" means past an acknowledgement.</div><div id="c-co"></div></div>
 </div>
 </section>
@@ -654,7 +676,7 @@ function readHash(){
     b.className='fold'; b.type='button';
     const set=on=>{pn.classList.toggle('shut',on);b.textContent=on?'+':'\u2212';
       b.setAttribute('aria-label',(on?'Expand ':'Collapse ')+key);b.setAttribute('aria-expanded',String(!on));};
-    const DEFAULT_SHUT=['By company'];
+    const DEFAULT_SHUT=['By company','Fit score distribution'];
     set(shut.length?shut.includes(key):DEFAULT_SHUT.includes(key));
     b.addEventListener('click',()=>{
       const opening=pn.classList.contains('shut');
@@ -894,7 +916,11 @@ document.getElementById('actions').addEventListener('click',e=>{
     body.innerHTML = o.a
       ? fitHTML(o.a)+trackHTML(o.a.company)+sentimentHTML(o.a.company)
         +`<div class="dd-act">${o.a.url?`<a href="${esc(o.a.url)}" target="_blank" rel="noopener">Open posting</a>`:''}`
-        +`<button type="button" data-co="${esc(o.a.company)}">Show ${esc(o.a.company)} in the table</button></div>`
+        +`<button type="button" data-co="${esc(o.a.company)}">Show ${esc(o.a.company)} in the table</button>`
+        +(o.a.status==='prospect'
+           ? `<button type="button" class="cp" data-cmd="careerops apply ${o.a.id}">Applied? copy <code>careerops apply ${o.a.id}</code></button>`
+           : '')
+        +`</div>`
       : `<div class="dd-act"><button type="button" data-flt="${o.filter?1:0}">Show these in the table</button></div>`;
     body.dataset.built='1';
   }
@@ -905,6 +931,13 @@ document.getElementById('actions').addEventListener('click',e=>{
   const b=e.target.closest('.dd-act button'); if(!b) return;
   e.stopPropagation();
   const row=b.closest('.act-w').querySelector('.act'); const o=acts[+row.dataset.i];
+  if(b.dataset.cmd){
+    const done=()=>{const o=b.innerHTML; b.innerHTML='copied, run it in your terminal';
+      setTimeout(()=>b.innerHTML=o,2200);};
+    if(navigator.clipboard) navigator.clipboard.writeText(b.dataset.cmd).then(done,done);
+    else done();
+    return;
+  }
   if(b.dataset.co) setFilter(a=>a.company===b.dataset.co, b.dataset.co);
   else if(o.filter) setFilter(o.filter.fn,o.filter.label);
   el('tb').scrollIntoView({behavior:'smooth',block:'center'});
@@ -917,6 +950,34 @@ document.getElementById('actions').addEventListener('keydown',e=>{
   e.innerHTML=` <b>Last 7 days: ${p.cur.sent} sent, ${p.cur.replies} replies</b> `
     +`(prior 7: ${p.prev.sent} and ${p.prev.replies}). `
     +`Four-week average ${p.avg4} per week.`;})();
+
+// ---------- recent activity ----------
+(function(){
+  const host=document.getElementById('c-recent'); if(!host) return;
+  const rows=D.recent||[];
+  if(!rows.length){host.innerHTML='<div class="muted small">Nothing yet. Run sync, or record a submission with <code>careerops apply &lt;id&gt;</code>.</div>';return;}
+  const LABEL={submitted:'applied', ack:'acknowledged', recruiter_outreach:'recruiter',
+               assessment:'assessment', interview_invite:'interview', offer:'offer',
+               rejection:'rejected'};
+  const HUE={submitted:'accent', ack:'faint', recruiter_outreach:'seq3', assessment:'seq3',
+             interview_invite:'good', offer:'good', rejection:'critical'};
+  const today=new Date(); today.setHours(0,0,0,0);
+  const ago=d=>{const t=new Date(d.slice(0,10)+'T00:00:00');
+    const n=Math.round((today-t)/864e5);
+    return n<=0?'today':n===1?'1d':n+'d';};
+  host.innerHTML=rows.map(r=>`<div class="rc hit" data-id="${r.app_id}"
+      title="${esc(r.company)} \u2014 ${esc(r.role)}${r.source&&r.source!=='gmail'?` \u00b7 recorded from ${esc(r.source)}, so the date is when it was logged`:``}">
+    <span class="rc-d">${esc(ago(r.occurred_at))}</span>
+    <span class="rc-t"><b>${esc(r.company)}</b> <span class="ro">${esc(r.role)}</span></span>
+    <span class="rc-e" style="color:var(--${HUE[r.type]||'muted'})">${esc(LABEL[r.type]||r.type)}${
+      r.source&&r.source!=='gmail'?`<span class="rc-s">${esc(r.source)}</span>`:''}</span>
+  </div>`).join('');
+  host.addEventListener('click',e=>{
+    const row=e.target.closest('.rc'); if(!row) return;
+    const id=+row.dataset.id, a=D.apps.find(x=>x.id===id);
+    setFilter(x=>x.id===id, a?`${a.company}: ${a.role}`:'record '+id);
+    el('tb').scrollIntoView({behavior:'smooth',block:'center'});});
+})();
 
 // ---------- drill-downs ----------
 // Sentiment has no section of its own. It is wanted in exactly two moments: deciding
