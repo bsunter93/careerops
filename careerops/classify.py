@@ -313,8 +313,13 @@ def _event_type(subject: str, body: str = "") -> "tuple":
     ack_subject = bool(ACK_SUBJECT.search(subject or ""))
 
     for etype, pats in EVENT_PATTERNS:
-        # rejections/offers are trustworthy in a body; interview promotion is not
-        scope = subj_low if (ack_subject and etype in ("interview_invite", "assessment")) else both_low
+        # Rejections and offers are trustworthy in a body. Promotion past "acked" is not:
+        # ATS acks routinely say "we will be reaching out to candidates" and "a recruiter
+        # will follow up", which promoted five definitive acknowledgements to in_process
+        # and inflated the advance rate.
+        scope = (subj_low if (ack_subject and etype in ("interview_invite", "assessment",
+                                                        "recruiter_outreach"))
+                 else both_low)
         for p in pats:
             m = re.search(p, scope)
             if m:

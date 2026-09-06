@@ -87,6 +87,13 @@ discovered prospects, which legitimately have none, are untouched.
 **ATS vendors are not employers.** Domain *suffix* match, so `us.greenhouse-mail.io`
 never becomes a company.
 
+**A definitive ack subject blocks every promotion, not just interviews.** The guard
+originally covered `interview_invite` and `assessment` only, so `recruiter_outreach`
+still trusted the body, and "we will be reaching out to candidates" inside a plain
+acknowledgement promoted five of them to `in_process`. That inflated advanced from 11 to
+16 and the advance rate from 3% to 5%. Any event type that outranks `acked` has to be
+inside the guard; the family of bug repeats every time a new one is added.
+
 **Weak interview signals are subject-only.** ATS acks routinely say "we'll be in touch
 about next steps" in boilerplate, which promoted "Thank you for applying to DoorDash"
 to an interview. Strong patterns (`invitation to interview`) may match the body; weak

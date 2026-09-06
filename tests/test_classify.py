@@ -245,3 +245,34 @@ class TestStaffingAndIdentity(unittest.TestCase):
     def test_confidential_is_not_a_company(self):
         for name in ("Confidential", "confidential", "Undisclosed", "Stealth"):
             self.assertIsNone(_clean_company(name), name)
+
+
+class TestAckBlocksPromotion(unittest.TestCase):
+    """A definitive acknowledgement subject blocks promotion past 'acked'.
+
+    ATS acks routinely contain "we will be reaching out to candidates" and "our
+    recruiter will review your application". Trusting those in a body promoted five
+    acknowledgements to in_process and inflated the advance rate.
+    """
+
+    def test_ack_subject_blocks_recruiter_outreach(self):
+        for subj, body in [
+            ("Thank you for applying to Cresta",
+             "we will be reaching out to candidates whose qualifications best match"),
+            ("\U0001f44b Thank you for applying to Whatnot!",
+             "our recruiter will review your application shortly"),
+            ("Thank You for Applying to the Program Manager role",
+             "a recruiter will be in touch if there is a match"),
+        ]:
+            self.assertEqual(classify(subj, "no-reply@greenhouse-mail.io", body).event_type,
+                             "ack", subj)
+
+    def test_genuine_recruiter_outreach_survives(self):
+        c = classify("Included Health - Intro to Recruiter", "hm@includedhealth.com",
+                     "I wanted to connect you with our recruiter for this role")
+        self.assertEqual(c.event_type, "recruiter_outreach")
+
+    def test_ack_subject_still_blocks_interviews(self):
+        c = classify("Thanks for applying to DoorDash", "no-reply@greenhouse-mail.io",
+                     "we will be in touch about next steps and your availability")
+        self.assertEqual(c.event_type, "ack")
