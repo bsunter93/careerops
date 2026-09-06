@@ -375,6 +375,12 @@ auto-scrolling to the table on every click dragged the reader to the bottom and 
 each one. A sticky bar reports the active filters and the resulting record count in place,
 and offers the jump once, on a button.
 
+**A funnel counts what an application EVER reached, not where it sits now.** Status is
+monotonic and rejection outranks interview, so counting current status erased every loop
+that ended in a no. Two Walmart interviews in May 2026 disappeared the moment the
+rejection was recorded, and the funnel then reported zero advances for the whole year.
+`ever_advanced` and `ever_interviewed` are derived from the event log, not from status.
+
 **Advance rate, not response rate.** 96% "response rate" counted auto-acks and was
 meaningless. Advance rate (past an ack ÷ submitted) is ~8% and is the real number.
 

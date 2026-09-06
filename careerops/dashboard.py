@@ -74,8 +74,24 @@ def collect(conn) -> dict:
     POS = ("in_process", "assessment", "interview", "offer")
     real = [a for a in apps if a["status"] != "prospect"]
     responded = [a for a in real if a["status"] != "applied"]
-    positive = [a for a in real if a["status"] in POS]
-    interview = [a for a in real if a["status"] in ("interview", "offer")]
+
+    # A funnel counts what an application EVER reached, not where it sits now. Status is
+    # monotonic and rejection outranks interview, so counting current status erased every
+    # loop that ended in a no: two Walmart interviews vanished the moment the rejection
+    # landed, and the funnel reported zero advances for 2026.
+    adv_ids = {r["application_id"] for r in conn.execute(
+        """SELECT DISTINCT application_id FROM events
+           WHERE application_id IS NOT NULL
+             AND type IN ('interview_invite','assessment','offer','recruiter_outreach')""")}
+    itv_ids = {r["application_id"] for r in conn.execute(
+        """SELECT DISTINCT application_id FROM events
+           WHERE application_id IS NOT NULL
+             AND type IN ('interview_invite','offer')""")}
+    for a in apps:
+        a["ever_advanced"] = a["id"] in adv_ids or a["status"] in POS
+        a["ever_interviewed"] = a["id"] in itv_ids or a["status"] in ("interview", "offer")
+    positive = [a for a in real if a["ever_advanced"]]
+    interview = [a for a in real if a["ever_interviewed"]]
     open_apps = [a for a in real if a["activity"] in ("active", "dormant")]
     dormant = [a for a in real if a["activity"] == "dormant"]
     live = [a for a in real if a["activity"] == "active"]
@@ -84,8 +100,8 @@ def collect(conn) -> dict:
     funnel = [
         {"k": "submitted", "label": "Submitted",  "n": len(real)},
         {"k": "acked",     "label": "Acknowledged","n": len(responded)},
-        {"k": "positive",  "label": "Advanced",   "n": len(positive)},
-        {"k": "interview", "label": "Interview",  "n": len(interview)},
+        {"k": "positive",  "label": "Ever advanced", "n": len(positive)},
+        {"k": "interview", "label": "Ever interviewed", "n": len(interview)},
     ]
 
     # Aging is a state, so it takes the status palette, with labels + icons.
@@ -728,8 +744,8 @@ CHARTS.push(function(){
   host.innerHTML='';
   const M={submitted:a=>a.status!=='prospect',
            acked:a=>a.status!=='prospect'&&a.status!=='applied',
-           positive:a=>['in_process','assessment','interview','offer'].includes(a.status),
-           interview:a=>['interview','offer'].includes(a.status)};
+           positive:a=>a.ever_advanced,
+           interview:a=>a.ever_interviewed};
   const d=D.funnel, W=cw('c-funnel'), H=124, pad={t:20,b:26};
   const base=d[0].n||1, band=H-pad.t-pad.b, cy=pad.t+band/2, segW=W/d.length;
   const ramp=['--seq4','--seq3','--seq2','--seq5'];
