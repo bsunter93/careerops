@@ -59,8 +59,9 @@ def cmd_event(a):
     when = a.date or datetime.date.today().isoformat()
     db.add_event(conn, aid, when, a.type, "manual", confidence=1.0,
                  subject=a.note or f"manual: {a.type}", raw="entered by hand")
+    st = db.recompute_status(conn, aid)
     conn.commit()
-    print(f"[{aid}] {a.company} - {a.role} -> {db.recompute_status(conn, aid)}")
+    print(f"[{aid}] {a.company} - {a.role} -> {st}")
 
 
 def cmd_reclassify(a):
