@@ -160,14 +160,21 @@ def collect(conn) -> dict:
                  "n": sum(1 for a in scored if lo <= a["fit_score"] <= hi)} for lo,hi,lb in bands]
     fit_low = sum(1 for a in scored if a["fit_score"] < 50)
 
+    # Per company: what is still alive, what went quiet, what is closed, and whether it
+    # ever advanced. "Ever advanced" alone is history; "active" alone hides that a company
+    # engaged once. The bar shows current state; the ever-advanced count sits in the label.
     byco = {}
     for a in real:
-        b = byco.setdefault(a["company"], {"company": a["company"], "n": 0, "resp": 0, "pos": 0})
+        b = byco.setdefault(a["company"], {"company": a["company"], "n": 0, "resp": 0,
+                                           "pos": 0, "active": 0, "dormant": 0, "closed": 0})
         b["n"] += 1
         if a["status"] != "applied": b["resp"] += 1
-        if a["status"] in POS: b["pos"] += 1
+        if a["ever_advanced"]: b["pos"] += 1
+        if a["status"] in ("rejected", "withdrawn"): b["closed"] += 1
+        elif a["activity"] == "dormant":            b["dormant"] += 1
+        else:                                        b["active"] += 1
     companies = sorted([b for b in byco.values() if b["n"] >= 2],
-                       key=lambda b: (-b["pos"], -b["n"]))[:10]
+                       key=lambda b: (-b["active"], -b["pos"], -b["n"]))[:10]
 
     # Public sentiment, keyed by company. Reference only: it is attached to the view,
     # never merged into fit_score, so a 4.8 on Glassdoor can never quietly promote a role.
@@ -476,7 +483,7 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
   <div class="panel"><h3>Aging, open applications</h3><div class="cap">Open applications by days since last activity. 22d+ is dormant.</div><div id="c-aging"></div><div class="sub">Funnel <span>all submitted, all time &middot; click a stage to filter</span></div><div id="c-funnel"></div></div>
   <div class="panel"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
   <div class="panel wide" style="grid-column:1/-1"><h3>Fit score distribution</h3><div class="cap" id="fitcap">Roles worth considering. Click a band to filter.</div><div id="c-fit"></div></div>
-  <div class="panel wide" style="grid-column:1/-1"><h3>By company</h3><div class="cap">Companies with 2+ applications. "Advanced" means past an acknowledgement.</div><div id="c-co"></div></div>
+  <div class="panel wide" style="grid-column:1/-1"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Sorted by active threads. Click any segment to filter.</div><div id="c-co"></div></div>
 </div>
 </section>
 
@@ -863,34 +870,45 @@ CHARTS.push(function(){
 });
 
 // ---------- by company ----------
+// The bar is CURRENT state, stacked: active, dormant, closed. Where a thread is still
+// alive is the actionable question; "ever advanced" is history, so it rides in the label
+// where it informs without dominating.
 CHARTS.push(function(){
+  const host=document.getElementById('c-co');
   const d=D.companies;
-  if(!d.length){document.getElementById('c-co').innerHTML='<div class="muted small">Not enough repeat companies yet.</div>';return;}
-  const W=cw('c-co'),rowH=22,H=d.length*rowH+10,max=Math.max(...d.map(x=>x.n),1),labW=150,barW=W-labW-160;
-  document.getElementById('c-co').innerHTML=
-    `<div class="legend"><span><i style="background:${cv('--seq2')}"></i>Applications</span>
-     <span><i style="background:${cv('--good')}"></i>Advanced</span></div>`;
+  if(!d.length){host.innerHTML='<div class="muted small">Not enough repeat companies yet.</div>';return;}
+  const W=cw('c-co'),rowH=22,H=d.length*rowH+10,max=Math.max(...d.map(x=>x.n),1),labW=150,barW=W-labW-190;
+  host.innerHTML=
+    `<div class="legend"><span><i style="background:${cv('--good')}"></i>Active</span>
+     <span><i style="background:${cv('--seq2')}"></i>Dormant</span>
+     <span><i style="background:${cv('--grid')}"></i>Closed</span></div>`;
   const s=mk('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
+  const SEG=[['active','--good','active'],['dormant','--seq2','dormant'],['closed','--grid','closed']];
   d.forEach((x,i)=>{
     const y=i*rowH+4;
-    const nm=mk('text',{x:0,y:y+15,class:'slab hit'});nm.textContent=x.company.length>22?x.company.slice(0,21)+'\u2026':x.company;
+    const nm=mk('text',{x:0,y:y+15,class:'slab hit'});
+    nm.textContent=x.company.length>22?x.company.slice(0,21)+'\u2026':x.company;
     bind(nm,`${x.company}: click to filter`);
     nm.addEventListener('click',()=>setFilter(a=>a.company===x.company,x.company));s.appendChild(nm);
-    const w=Math.max(3,x.n/max*barW);
-    const r=mk('rect',{x:labW,y:y+4,width:w,height:15,rx:2,fill:cv('--seq2')});
-    bind(r,`${x.company}: ${x.n} applications, ${x.resp} acked, ${x.pos} advanced`);
-    r.addEventListener('click',()=>setFilter(a=>a.company===x.company,x.company));s.appendChild(r);
-    if(x.pos>0){const pw=Math.max(3,x.pos/max*barW);
-      s.appendChild(mk('rect',{x:labW,y:y+4,width:pw+2,height:15,fill:cv('--panel')}));
-      const p=mk('rect',{x:labW,y:y+4,width:pw,height:15,rx:2,fill:cv('--good')});
-      bind(p,`${x.company}: ${x.pos} advanced \u00b7 click to filter`);p.setAttribute('class','hit');
-      p.addEventListener('click',ev=>{ev.stopPropagation();setFilter(
-        a=>a.company===x.company&&['in_process','assessment','interview','offer'].includes(a.status),
-        `${x.company} advanced`);});s.appendChild(p);}
-    const t=mk('text',{x:labW+barW+10,y:y+16,class:'vlab'});
-    t.textContent=`${x.n} sent · ${x.pos} advanced`;s.appendChild(t);
+    let off=0;
+    SEG.forEach(([k,col,label])=>{
+      if(!x[k]) return;
+      const w=Math.max(2,x[k]/max*barW);
+      const r=mk('rect',{x:labW+off,y:y+4,width:Math.max(1,w-1.5),height:15,rx:2,fill:cv(col),class:'hit'});
+      bind(r,`${x.company}: ${x[k]} ${label}${x.pos?` \u00b7 ${x.pos} ever advanced`:''}`);
+      r.addEventListener('click',()=>{
+        const f=k==='active' ? (a=>a.company===x.company&&a.activity==='active'&&!['rejected','withdrawn'].includes(a.status))
+              : k==='dormant'? (a=>a.company===x.company&&a.activity==='dormant')
+              :                (a=>a.company===x.company&&['rejected','withdrawn'].includes(a.status));
+        setFilter(f, `${x.company} ${label}`);});
+      s.appendChild(r); off+=w;
+    });
+    const t=mk('text',{x:labW+barW+12,y:y+16,class:'vlab'});
+    t.textContent=`${x.active} active`+(x.pos?` \u00b7 ${x.pos} advanced`:'')+` \u00b7 ${x.n} sent`;
+    if(!x.active) t.setAttribute('fill',cv('--faint'));
+    s.appendChild(t);
   });
-  document.getElementById('c-co').appendChild(s);
+  host.appendChild(s);
 });
 
 // ---------- action queue ----------
