@@ -87,6 +87,18 @@ discovered prospects, which legitimately have none, are untouched.
 **ATS vendors are not employers.** Domain *suffix* match, so `us.greenhouse-mail.io`
 never becomes a company.
 
+**A cancelled or filled requisition is a rejection.** Twelve events carried closure
+language; six sat as `unresolved`, so real outcomes from Microsoft, Amazon, Adobe,
+DoorDash, Box and Cloudflare were never recorded at all. One, NVIDIA, read as forward
+progress: "we are reaching out to inform you that we are no longer recruiting" tripped a
+recruiter pattern, so a dead req outranked an acknowledgement.
+
+**`reaching out` is ordinary English, not a recruiter signal.** It appears inside closure
+mail and rejections. Recruiter outreach needs intent attached: `reaching out about`,
+`came across your profile`, `would you be open`. Removing the bare pattern also let three
+genuine Stripe interview threads classify correctly, since a weaker type had been
+matching first.
+
 **A definitive ack subject blocks every promotion, not just interviews.** The guard
 originally covered `interview_invite` and `assessment` only, so `recruiter_outreach`
 still trusted the body, and "we will be reaching out to candidates" inside a plain

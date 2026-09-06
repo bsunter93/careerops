@@ -276,3 +276,34 @@ class TestAckBlocksPromotion(unittest.TestCase):
         c = classify("Thanks for applying to DoorDash", "no-reply@greenhouse-mail.io",
                      "we will be in touch about next steps and your availability")
         self.assertEqual(c.event_type, "ack")
+
+
+class TestClosedRequisitions(unittest.TestCase):
+    """A cancelled or filled req is a terminal outcome, not silence and not progress.
+
+    Six of these sat as 'unresolved' and one, NVIDIA, had been promoted to
+    recruiter_outreach because "we are reaching out to inform you that we are no longer
+    recruiting" tripped a recruiter pattern. A closed req read as forward movement.
+    """
+
+    def test_closure_language_is_a_rejection(self):
+        for subj, body in [
+            ("Thank you from NVIDIA",
+             "We are reaching out to inform you that we are no longer recruiting for the role."),
+            ("Update on Your Application at Harvey", "the position has been filled"),
+            ("Cloudflare Application Update", "we are no longer hiring for this role"),
+            ("Update on your application", "this requisition was cancelled"),
+        ]:
+            self.assertEqual(classify(subj, "no-reply@greenhouse-mail.io", body).event_type,
+                             "rejection", subj)
+
+    def test_reaching_out_alone_is_not_recruiter_outreach(self):
+        """Ordinary English, and it appears inside closure and rejection mail."""
+        c = classify("Update on your application", "no-reply@greenhouse-mail.io",
+                     "We are reaching out to inform you of a change to this role.")
+        self.assertNotEqual(c.event_type, "recruiter_outreach")
+
+    def test_real_sourcing_still_reads_as_outreach(self):
+        c = classify("Quick question about a role", "jane@acme.com",
+                     "I came across your profile and would love to connect about an opening")
+        self.assertEqual(c.event_type, "recruiter_outreach")
