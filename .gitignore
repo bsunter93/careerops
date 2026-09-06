@@ -24,3 +24,7 @@ token.json
 __pycache__/
 .venv/
 .DS_Store
+demo.db
+demo.db-wal
+demo.db-shm
+demo-dashboard.html

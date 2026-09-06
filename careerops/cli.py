@@ -1,5 +1,5 @@
 """careerops <command>"""
-import sys, argparse
+import sys, argparse, pathlib
 from . import db
 from .ingest import ingest_legacy_csv
 
@@ -286,6 +286,20 @@ def cmd_intel(a):
           run(conn, limit=a.limit, refresh=a.refresh, company=a.company).items()))
 
 
+def cmd_demo(a):
+    """Seed a synthetic pipeline in its own database. Never touches your real one."""
+    from .demo import seed, DEMO_DB
+    from .dashboard import collect, render
+    st = seed()
+    print("  ".join(f"{k}={v}" for k, v in st.items()))
+    conn = db.connect(DEMO_DB)
+    out = a.out or str(pathlib.Path(DEMO_DB).parent / "demo-dashboard.html")
+    pathlib.Path(out).write_text(render(collect(conn), artifact=a.artifact))
+    print(out)
+    if a.open:
+        import subprocess; subprocess.run(["open", out])
+
+
 def cmd_dashboard(a):
     from .dashboard import write
     import subprocess, pathlib
@@ -376,6 +390,8 @@ def main(argv=None):
     sub.add_parser("analytics").set_defaults(fn=cmd_analytics)
     rs = sub.add_parser("resume"); rs.add_argument("id", type=int); rs.add_argument("--out")
     rs.set_defaults(fn=cmd_resume)
+    dm = sub.add_parser("demo"); dm.add_argument("--out"); dm.add_argument("--open", action="store_true")
+    dm.add_argument("--artifact", action="store_true"); dm.set_defaults(fn=cmd_demo)
     dh = sub.add_parser("dashboard"); dh.add_argument("--out"); dh.add_argument("--open", action="store_true")
     dh.add_argument("--artifact", action="store_true")
     dh.set_defaults(fn=cmd_dashboard)

@@ -8,6 +8,31 @@ It was built to replace a spreadsheet that had one row per email, which is why i
 sender addresses in a "Company" column and could not answer "how many places have I
 actually applied?"
 
+![The dashboard, rendered from the built-in demo data](docs/dashboard.png)
+
+## Try it in two minutes, no credentials
+
+```bash
+git clone https://github.com/bsunter93/careerops && cd careerops
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m careerops.cli demo --open
+```
+
+That seeds a synthetic pipeline and opens the dashboard above. It writes to its own
+`demo.db` and never touches a real database, so it is also the safe way to demo this on
+a shared screen.
+
+Board discovery works with no credentials either:
+
+```bash
+cp config.example.json config.json && cp profile.example.md profile.md
+.venv/bin/python -m careerops.cli init
+.venv/bin/python -m careerops.cli discover     # polls live Greenhouse/Ashby/Lever boards
+```
+
+Credentials only buy you two things: an API key scores the roles discovery finds, and
+Gmail access reconstructs what happened after you applied.
+
 ## The one idea
 
 **Applications are entities with derived state. Emails are events that mutate it.**
@@ -33,31 +58,29 @@ intel      fetch public employee sentiment per company, with sources
 dashboard  render a single self-contained HTML file
 ```
 
-## Setup
+## Full setup
 
-Four things, and the second is the annoying one.
-
-**1. Install**
+**1. Configure**
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp config.example.json config.json
-cp profile.example.md profile.md
 cp .env.example .env
 ```
 
-Edit all three. `profile.md` is the one that matters: a vague profile produces confident
-nonsense, because the scorer has nothing concrete to weigh against.
+Then edit `config.json`, `profile.md` and `.env`. `profile.md` is the one that matters: a
+vague profile produces confident nonsense, because the scorer has nothing concrete to
+weigh against. All three are gitignored.
 
-**2. Gmail access (about 20 minutes, unavoidable)**
+**2. An Anthropic API key** in `.env`. Required for `fit` and `intel`. Without it,
+`discover` still finds roles but nothing surfaces as a prospect, because scoring is what
+promotes a discovered role into the pipeline. Scoring a couple of hundred roles costs a
+few dollars.
+
+**3. Gmail access (about 20 minutes, and the only tedious part)**
 
 Create a Google Cloud project, enable the Gmail API, configure an OAuth consent screen
 as **External / Testing**, add yourself as a test user, then create an **OAuth client ID**
 of type *Desktop app* and download it as `credentials.json` into the repo root. The scope
 used is `gmail.readonly`. Nothing is ever sent anywhere; the token stays in `token.json`.
-
-**3. An Anthropic API key** in `.env`, for fit scoring and company intel. Scoring a couple
-of hundred roles costs a few dollars.
 
 **4. Check it**
 
@@ -76,6 +99,7 @@ python3 -m careerops.cli resume 51            # tailored .docx for application 5
 python3 -m careerops.cli sync --since 1y      # pull and classify Gmail
 python3 -m careerops.cli resolve              # merge duplicates, drain the review queue
 python3 -m careerops.cli dashboard --open
+python3 -m careerops.cli demo --open          # synthetic data, separate database
 ```
 
 `why <id>` explains any single application. `review` shows what the classifier refused to
