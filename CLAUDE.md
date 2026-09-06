@@ -238,6 +238,12 @@ with contradictory numbers.
 title 3×, JD 1×) so selection is inspectable. Only the tagline and profile paragraph go
 through the model; every factual claim comes from the master.
 
+**`careerops resume <id> --verify` renders through Word and counts pages.** Word is
+sandboxed: it prompts for access to unfamiliar directories, and a prompt naming a hidden
+folder like `/tmp` hangs the AppleEvent with no visible cause and no error. Write the PDF
+beside the .docx. Also send `open` to a document Word already has open and it stalls on
+its own dialog; close first, or work on the open document.
+
 **Always verify page count through real Word** (`osascript` → `save as ... format PDF`).
 Quick Look substitutes fonts (Calibri ships inside Office, not system-wide) and reports
 one page for a document Word renders as two.

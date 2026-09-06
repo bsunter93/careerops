@@ -155,3 +155,38 @@ def build(conn, app_id: int, out: Optional[str] = None) -> dict:
             "bullets": chosen, "dropped": [b["id"] for b in scored if b["id"] not in chosen],
             "top": scored[:5], "company": row["company"], "title": row["title"],
             "score": row["fit_score"]}
+
+
+def page_count(docx_path: str) -> "Optional[int]":
+    """Render through real Word and count pages. Quick Look substitutes fonts (Calibri
+    ships inside Office, not system-wide) and reports one page for a document Word sets
+    as two, so this is the only trustworthy check.
+
+    The PDF is written beside the .docx on purpose: Word is sandboxed and prompts for
+    access to unfamiliar directories, and a prompt for a hidden folder like /tmp hangs
+    the AppleEvent with no visible cause.
+    """
+    import re, subprocess, pathlib
+    src = pathlib.Path(docx_path).resolve()
+    out = src.with_name("._pagecheck.pdf")
+    if out.exists():
+        out.unlink()
+    script = f'''
+    with timeout of 150 seconds
+    tell application "Microsoft Word"
+        open POSIX file "{src}"
+        delay 2
+        save as active document file name "{out}" file format format PDF
+        delay 2
+        close active document saving no
+    end tell
+    end timeout'''
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=180)
+        data = out.read_bytes()
+        return len(re.findall(rb"/Type\s*/Page[^s]", data))
+    except Exception:
+        return None
+    finally:
+        if out.exists():
+            out.unlink()

@@ -343,7 +343,7 @@ def cmd_dashboard(a):
 
 
 def cmd_resume(a):
-    from .resume import build
+    from .resume import build, page_count
     r = build(db.connect(a.db), a.id, a.out)
     print(f"{r['company']} - {r['title']}  (fit {r['score']})")
     print(f"  tagline: {r['tagline']}")
@@ -353,6 +353,14 @@ def cmd_resume(a):
     for b in r["top"]:
         print(f"    {b['score']:>5}  {b['label']}")
     print(f"  -> {r['out']}")
+    if a.verify:
+        n = page_count(r["out"])
+        if n is None:
+            print("  pages: could not verify (is Word installed and responsive?)")
+        elif n == 1:
+            print("  pages: 1, verified in Word")
+        else:
+            print(f"  pages: {n} IN WORD. House rule is one page; trim a bullet or shorten one.")
 
 
 def cmd_analytics(a):
@@ -421,6 +429,7 @@ def main(argv=None):
     it.add_argument("--show", action="store_true"); it.set_defaults(fn=cmd_intel)
     sub.add_parser("analytics").set_defaults(fn=cmd_analytics)
     rs = sub.add_parser("resume"); rs.add_argument("id", type=int); rs.add_argument("--out")
+    rs.add_argument("--verify", action="store_true", help="render through Word and check it is one page")
     rs.set_defaults(fn=cmd_resume)
     ap = sub.add_parser("apply"); ap.add_argument("id", type=int)
     ap.add_argument("--date", help="YYYY-MM-DD, defaults to today")

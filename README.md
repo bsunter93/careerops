@@ -95,7 +95,7 @@ used is `gmail.readonly`. Nothing is ever sent anywhere; the token stays in `tok
 python3 -m careerops.cli discover             # poll the boards in config.json
 python3 -m careerops.cli fit --limit 20       # score what was found
 python3 -m careerops.cli prospects            # ranked, with the reasoning
-python3 -m careerops.cli resume 51            # tailored .docx for application 51
+python3 -m careerops.cli resume 51 --verify   # tailored .docx, page-checked in Word
 python3 -m careerops.cli apply 51             # record that you submitted it
 python3 -m careerops.cli sync --since 1y      # pull and classify Gmail
 python3 -m careerops.cli resolve              # merge duplicates, drain the review queue
