@@ -1,0 +1,138 @@
+{
+  "_comment": "Copy to resume/master.json. Single source of truth for every factual claim. Do not fork it into per-role variants: that is what produced three divergent generators with contradictory numbers.",
+  "header": {
+    "name": "YOUR NAME",
+    "contact": "City, ST  |  555-555-5555  |  you@example.com  |  linkedin.com/in/you"
+  },
+  "skills": {
+    "strategy": {
+      "label": "Strategy & Operations",
+      "items": [
+        {
+          "t": "Business Operations",
+          "tags": [
+            "bizops",
+            "operations"
+          ]
+        },
+        {
+          "t": "Annual Planning",
+          "tags": [
+            "planning",
+            "governance"
+          ]
+        }
+      ]
+    },
+    "data": {
+      "label": "Data & Analytics",
+      "items": [
+        {
+          "t": "SQL",
+          "tags": [
+            "sql",
+            "data"
+          ]
+        },
+        {
+          "t": "Python (ETL/automation)",
+          "tags": [
+            "python",
+            "automation"
+          ]
+        }
+      ]
+    },
+    "leadership": {
+      "label": "Leadership",
+      "items": [
+        {
+          "t": "Cross-functional leadership",
+          "tags": [
+            "stakeholders",
+            "leadership"
+          ]
+        }
+      ]
+    }
+  },
+  "_skills_note": "Each item carries tags. A variant keeps the items whose tags overlap the target role.",
+  "experience": [
+    {
+      "org": "Most Recent Employer",
+      "title": "Your Title",
+      "location": "Remote",
+      "dates": "Jan 2024 - Present",
+      "inline_title": true,
+      "bullets": [
+        {
+          "id": "launch",
+          "label": "Zero-to-one launch",
+          "tags": [
+            "bizops",
+            "operations",
+            "launch"
+          ],
+          "text": "One claim, with the number that makes it checkable. Prefer a real ratio over a rounded percentage."
+        },
+        {
+          "id": "cost",
+          "label": "Cost mandate",
+          "tags": [
+            "finance",
+            "operations",
+            "modeling"
+          ],
+          "text": "A second claim. Every bullet needs an id, because variants select bullets by id."
+        }
+      ]
+    },
+    {
+      "org": "Earlier Employer",
+      "location": "City, ST",
+      "dates": "2019 - 2023",
+      "roles": [
+        {
+          "title": "Promoted Title",
+          "dates": "2021 - 2023",
+          "bullets": [
+            {
+              "id": "quota",
+              "label": "Quota performance",
+              "tags": [
+                "gtm",
+                "sales"
+              ],
+              "text": "Use nested roles when one employer covers a promotion."
+            }
+          ]
+        },
+        {
+          "title": "Original Title",
+          "dates": "2019 - 2021",
+          "bullets": [
+            {
+              "id": "governance",
+              "label": "Execution governance",
+              "tags": [
+                "governance",
+                "programs"
+              ],
+              "text": "Bullets rank by tag overlap with the role, so tag honestly."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "education": [
+    {
+      "lead": "B.S. Your Degree",
+      "rest": "  |  Your University  |  2016"
+    },
+    {
+      "lead": "Certifications: ",
+      "rest": "Whatever you actually hold"
+    }
+  ]
+}

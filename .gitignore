@@ -1,0 +1,26 @@
+# Personal data. Never commit these.
+# config.json    - identity, watchlist, candid per-company notes
+# profile.md     - candidate profile
+# master.json    - your resume: name, phone, email, every claim you make
+# dashboard.html - a full projection of your database, embedded as JSON
+config.json
+profile.md
+resume/master.json
+resume/.variant_*.json
+dashboard.html
+*.docx
+*.pdf
+careerops.db
+careerops.db-wal
+careerops.db-shm
+
+# Credentials
+credentials.json
+token.json
+.env
+
+# Noise
+*.log
+__pycache__/
+.venv/
+.DS_Store
