@@ -594,3 +594,131 @@ def drop_noise_only(conn) -> int:
         LEFT JOIN roles r ON r.company_id=c.id WHERE r.id IS NULL)""")
     conn.commit()
     return len(ids)
+
+
+ABBREV = {"pgm": "program manager", "pm": "program manager", "tpm": "technical program manager",
+          "ops": "operations", "sr": "senior", "mgr": "manager", "s&o": "strategy operations",
+          "gtm": "go to market", "bizops": "business operations"}
+GENERIC_TITLE = {"program manager", "manager", "unknown", "unknown role", "project manager",
+                 "senior program manager", "operations"}
+
+
+def _norm_title(t: str) -> set:
+    t = re.sub(r"[^a-z0-9& ]+", " ", (t or "").lower())
+    out = []
+    for w in t.split():
+        out.extend(ABBREV.get(w, w).split())
+    return {w for w in out if w not in {"the", "a", "of", "and", "for", "at"}}
+
+
+def _strip_company(t: str, company: str) -> str:
+    if not company:
+        return t
+    return re.sub(rf"\b{re.escape(company)}(?:'s|s')?\b", " ", t or "", flags=re.I)
+
+
+def _compatible(t1: str, t2: str, company: str = "") -> bool:
+    """Two titles in one Gmail thread may be the same role written differently, or two
+    genuinely different applications that Gmail threaded because their boilerplate
+    subjects matched. Only the first may be folded."""
+    t1, t2 = _strip_company(t1, company), _strip_company(t2, company)
+    n1, n2 = _norm_title(t1), _norm_title(t2)
+    if not n1 or not n2:
+        return True
+    if n1 == n2:
+        return True
+    if " ".join(sorted(n1)) in GENERIC_TITLE or " ".join(sorted(n2)) in GENERIC_TITLE:
+        return True
+    if (t1 or "").strip().lower() in GENERIC_TITLE or (t2 or "").strip().lower() in GENERIC_TITLE:
+        return True
+    if n1 <= n2 or n2 <= n1:
+        return True
+    return len(n1 & n2) / len(n1 | n2) >= 0.6
+
+
+def _title_score(title: str, company: str) -> tuple:
+    """Rank candidate titles for a merged application. Prefer a specific, properly
+    capitalised title over a generic or company-prefixed one: an interview loop that
+    split produced 'Launch PgM', 'program manager' and "Stripe's Program Manager"
+    for the same role."""
+    t = (title or "").strip()
+    low = t.lower()
+    generic = low in {"program manager", "unknown", "unknown role", "manager"}
+    has_company = (company or "").lower() in low
+    capitalised = t[:1].isupper() and t != low
+    return (not generic, not has_company, capitalised, len(t))
+
+
+def merge_threads(conn, dry: bool = True) -> dict:
+    """Fold applications that share a Gmail thread AND a compatible role title.
+
+    A thread is usually one conversation, so when later messages resolve a slightly
+    different title from their body, one interview loop became several advances. But
+    Gmail also threads on identical subjects, so two separate applications sharing
+    "Thanks for applying to Stripe!" land in one thread and must not be folded.
+    Events move per thread, never per application: one application can bridge two
+    threads, and each of its events belongs with its own conversation.
+    """
+    rows = conn.execute("""
+        SELECT thread_id, GROUP_CONCAT(DISTINCT application_id) ids
+        FROM events
+        WHERE thread_id IS NOT NULL AND application_id IS NOT NULL
+        GROUP BY thread_id HAVING COUNT(DISTINCT application_id) > 1""").fetchall()
+    plan, moved, skipped = [], 0, []
+    for r in rows:
+        ids = sorted(int(x) for x in r["ids"].split(","))
+        apps = conn.execute(f"""
+            SELECT a.id, a.status, a.applied_on, a.submitted_at, a.fit_score, a.referral,
+                   r.title, c.name company
+            FROM applications a JOIN roles r ON r.id = a.role_id
+            JOIN companies c ON c.id = r.company_id
+            WHERE a.id IN ({','.join('?' * len(ids))})""", ids).fetchall()
+        if len(apps) < 2:
+            continue
+        co = apps[0]["company"]
+        parent = {a["id"]: a["id"] for a in apps}
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]; x = parent[x]
+            return x
+        for i, a in enumerate(apps):
+            for b in apps[i + 1:]:
+                if _compatible(a["title"], b["title"], co):
+                    parent[find(a["id"])] = find(b["id"])
+        clusters = {}
+        for a in apps:
+            clusters.setdefault(find(a["id"]), []).append(a)
+        group = max(clusters.values(), key=len)
+        rest = [a for a in apps if a not in group]
+        if rest:
+            skipped.append({"company": co, "thread": r["thread_id"],
+                            "kept_apart": [(a["id"], a["title"]) for a in rest]})
+        if len(group) < 2:
+            continue
+        keeper = min(group, key=lambda a: (a["submitted_at"] or a["applied_on"] or "9999", a["id"]))
+        best = max(group, key=lambda a: _title_score(a["title"], a["company"]))
+        losers = [a for a in group if a["id"] != keeper["id"]]
+        plan.append({"company": keeper["company"], "keep": keeper["id"], "title": best["title"],
+                     "drop": [(a["id"], a["title"], a["status"]) for a in losers]})
+        if dry:
+            continue
+        for a in losers:
+            conn.execute("""UPDATE events SET application_id=?
+                            WHERE application_id=? AND thread_id=?""",
+                         (keeper["id"], a["id"], r["thread_id"]))
+            if a["referral"]:
+                conn.execute("UPDATE applications SET referral=1 WHERE id=?", (keeper["id"],))
+            moved += 1
+        if best["title"] != keeper["title"]:
+            set_identity(conn, keeper["id"], company=None, role=best["title"])
+    if not dry:
+        # an application with no events left was only ever a fragment of a thread
+        conn.execute("""DELETE FROM applications WHERE status != 'prospect'
+                        AND NOT EXISTS (SELECT 1 FROM events e WHERE e.application_id = applications.id)""")
+        conn.execute("""DELETE FROM roles WHERE id IN (SELECT r.id FROM roles r
+            LEFT JOIN applications a ON a.role_id=r.id WHERE a.id IS NULL)""")
+        conn.execute("""DELETE FROM companies WHERE id IN (SELECT c.id FROM companies c
+            LEFT JOIN roles r ON r.company_id=c.id WHERE r.id IS NULL)""")
+        db.recompute_all(conn)
+        conn.commit()
+    return {"threads": len(plan), "events_moved": moved, "plan": plan, "kept_apart": skipped}

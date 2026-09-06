@@ -149,6 +149,23 @@ carries the employer where the domain carries only the vendor. When a subject sa
 "Thanks for applying to X" and X reads like a job title, X is the ROLE and the company
 comes from the display name.
 
+**Store the Gmail threadId, and let it own application identity.** Later messages in one
+conversation resolve slightly different titles from their bodies, so "Launch PgM" and
+"Launch Program Manager" became separate applications and a single interview loop counted
+as several advances. Stripe read as 6 advances against a true 2. An event whose thread
+already has an application attaches to it and never re-resolves a role.
+
+**Thread alone is not enough, in either direction.** Gmail also threads on identical
+subjects, so two real applications sharing "Thanks for applying to Stripe!" land in one
+thread and must not be folded: `merge_threads` clusters by title compatibility inside a
+thread and leaves incompatible roles apart. And one-off calendar confirmations get their
+own thread, so interview confirmations for an existing loop stay orphaned; those need a
+human. Never infer a merge from timestamps alone.
+
+**Widen the refetch predicate whenever a stored field is added.** It only re-fetched when
+the body was missing or CSS, so adding `thread_id` left the backfill a silent no-op across
+686 events.
+
 **Replay events in time order.** `reidentify` sorts by `occurred_at` so an ack opens a
 submission before later events attach to it; unordered replay made a rejection create its
 own application ahead of its own ack. `merge_orphan_outcomes` repairs any that slipped.

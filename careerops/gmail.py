@@ -180,8 +180,13 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
             fetched += 1
             stats["seen"] += 1
             ext = "gmail:" + m["id"]
-            known = conn.execute("SELECT id, body FROM events WHERE external_id=?", (ext,)).fetchone()
-            if known and not (refetch and (not known["body"] or _looks_like_css(known["body"]))):
+            known = conn.execute("SELECT id, body, thread_id FROM events WHERE external_id=?",
+                                 (ext,)).fetchone()
+            # Refetch when anything we now store is missing, not only the body. Adding
+            # thread_id without widening this left the backfill a no-op on 686 events.
+            stale = known and (not known["body"] or _looks_like_css(known["body"])
+                               or known["thread_id"] is None)
+            if known and not (refetch and stale):
                 stats["skipped"] += 1
                 continue
             full = _retry(lambda: svc.users().messages()
@@ -194,20 +199,28 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
             when = _header(payload, "Date")
             iso = _to_iso(when, full.get("internalDate"))
 
-            if known:                       # refetch path: repair the stored body only
-                conn.execute("UPDATE events SET body=? WHERE id=?", (body[:2000], known["id"]))
+            tid = full.get("threadId")
+            if known:                       # refetch path: repair the body, backfill the thread
+                conn.execute("UPDATE events SET body=?, thread_id=? WHERE id=?",
+                             (body[:2000], tid, known["id"]))
                 stats["refetched"] += 1
                 continue
 
             c = classify(subject, sender, body)
             if c.event_type == "noise":
                 db.add_event(conn, None, iso, "noise", "gmail", confidence=c.confidence,
-                             external_id=ext, subject=subject, sender=sender, body=body[:2000])
+                             external_id=ext, subject=subject, sender=sender, body=body[:2000],
+                             thread_id=tid)
                 stats["noise"] += 1
                 continue
 
             app_id = None
-            if c.company and creates_application(c):
+            prior = conn.execute("""SELECT application_id FROM events
+                                    WHERE thread_id = ? AND application_id IS NOT NULL
+                                    ORDER BY occurred_at LIMIT 1""", (tid,)).fetchone() if tid else None
+            if prior:
+                app_id = prior["application_id"]          # same conversation, same application
+            elif c.company and creates_application(c):
                 cid = db.get_or_create_company(conn, c.company)
                 rid = db.get_or_create_role(conn, cid, c.role or "Unknown role", source="gmail")
                 existed = conn.execute("SELECT 1 FROM applications WHERE role_id=?", (rid,)).fetchone()
@@ -219,7 +232,7 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
 
             eid = db.add_event(conn, app_id, iso, c.event_type, "gmail", confidence=c.confidence,
                                external_id=ext, subject=subject, sender=sender,
-                               raw="; ".join(c.reasons), body=body[:2000])
+                               raw="; ".join(c.reasons), body=body[:2000], thread_id=tid)
             if eid:
                 stats["new"] += 1
                 if c.needs_review:

@@ -127,7 +127,7 @@ def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = No
 
 def add_event(conn, application_id, occurred_at, type_, source, *,
               confidence=1.0, external_id=None, subject=None, sender=None, raw=None,
-              body=None) -> Optional[int]:
+              body=None, thread_id=None) -> Optional[int]:
     """Idempotent on external_id. Returns event id, or None if already ingested."""
     if external_id:
         row = conn.execute("SELECT id FROM events WHERE external_id = ?", (external_id,)).fetchone()
@@ -135,9 +135,10 @@ def add_event(conn, application_id, occurred_at, type_, source, *,
             return None
     cur = conn.execute(
         """INSERT INTO events (application_id, occurred_at, type, confidence, source,
-                               external_id, subject, sender, raw, body)
-           VALUES (?,?,?,?,?,?,?,?,?,?)""",
-        (application_id, occurred_at, type_, confidence, source, external_id, subject, sender, raw, body),
+                               external_id, subject, sender, raw, body, thread_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (application_id, occurred_at, type_, confidence, source, external_id, subject, sender,
+         raw, body, thread_id),
     )
     return cur.lastrowid
 
