@@ -311,6 +311,13 @@ Stages are equal width with proportional bars underneath; proportional widths re
 and 9 as slivers next to 338. Each stage also states its own drop, which is where the
 story is: -95% from acknowledged to advanced.
 
+**A chart that restates a hero card is not a chart.** Three were cut for this reason.
+Fit distribution reranked what Do next already ranks. The funnel said "6 of 336 advanced"
+next to a hero card reading "2%, 6 of 336" that filtered identically. Aging said "197
+dormant" beside a card saying "196 dormant", with the per-company breakdown already in By
+company. What survives is the four that answer different questions: what just moved, what
+to do, how fast you are going, and where to concentrate.
+
 **The analysis grid is two explicit columns, not auto-fit.** `auto-fit` with a 430px
 minimum silently collapses to one column in an artifact panel around 890px wide, so the
 quadrant read as four charts stacked vertically. `repeat(2,minmax(0,1fr))` holds the

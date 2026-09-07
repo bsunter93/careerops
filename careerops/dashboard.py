@@ -502,9 +502,8 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 <div class="grid">
   <div class="panel"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Portal-recorded outcomes are excluded: they carry the date they were logged, not the date they happened. Click a row for the table.</div><div id="c-recent"></div></div>
   <div class="panel dn" id="s-next"><h3>Do next</h3><div class="cap" id="dncap"></div><div id="actions"></div></div>
-  <div class="panel"><h3>Aging, open applications</h3><div class="cap">Open applications by days since last activity. 22d+ is dormant.</div><div id="c-aging"></div><div class="sub">Funnel <span>all submitted, all time &middot; click a stage to filter</span></div><div id="c-funnel"></div></div>
   <div class="panel"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
-  <div class="panel wide" style="grid-column:1/-1"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Sorted by active threads. Click any segment to filter.</div><div id="c-co"></div></div>
+  <div class="panel"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Click any segment to filter.</div><div id="c-co"></div></div>
 </div>
 </section>
 
@@ -777,70 +776,6 @@ document.getElementById('hero').addEventListener('click',e=>{
 document.getElementById('hero').addEventListener('keydown',e=>{
   if(e.key==='Enter'||e.key===' '){e.preventDefault();e.target.click();}});
 
-// ---------- funnel infographic ----------
-// A real funnel: trapezoids narrowing left to right, so the collapse after
-// acknowledgement is a shape rather than four numbers to compare. Thin stages keep a
-// minimum band and put their label above the silhouette, since 16 and 9 against 338
-// are only a few pixels tall and would otherwise be unlabelled slivers.
-CHARTS.push(function(){
-  const host=document.getElementById('c-funnel'); if(!host) return;
-  host.innerHTML='';
-  const M={submitted:a=>a.status!=='prospect',
-           acked:a=>a.status!=='prospect'&&a.status!=='applied',
-           positive:a=>a.ever_advanced,
-           interview:a=>a.ever_interviewed};
-  const d=D.funnel, W=cw('c-funnel'), H=124, pad={t:20,b:26};
-  const base=d[0].n||1, band=H-pad.t-pad.b, cy=pad.t+band/2, segW=W/d.length;
-  const ramp=['--seq4','--seq3','--seq2','--seq5'];
-  const hOf=n=>Math.max(5, n/base*band);
-  const s2=mk('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
-  d.forEach((x,i)=>{
-    const x0=i*segW, x1=x0+segW;
-    const h0=hOf(x.n), h1=hOf(i+1<d.length?d[i+1].n:x.n);
-    const pts=`${x0},${cy-h0/2} ${x1},${cy-h1/2} ${x1},${cy+h1/2} ${x0},${cy+h0/2}`;
-    const go=()=>setFilter(M[x.k],x.label);
-    // full-height hit target first, so a 5px band is still an easy click
-    const hit=mk('rect',{x:x0,y:0,width:segW,height:H,fill:'transparent',class:'hit'});
-    bind(hit,`${x.label}: ${x.n} of ${base} submitted (${Math.round(x.n/base*100)}%)`);
-    hit.addEventListener('click',go); s2.appendChild(hit);
-    const poly=mk('polygon',{points:pts,fill:cv(ramp[i]),class:'hit'});
-    bind(poly,`${x.label}: ${x.n} of ${base} submitted (${Math.round(x.n/base*100)}%)`);
-    poly.addEventListener('click',go); s2.appendChild(poly);
-    if(i){s2.appendChild(mk('line',{x1:x0,x2:x0,y1:cy-h0/2,y2:cy+h0/2,
-      stroke:cv('--panel'),'stroke-width':2}));}
-    const n=mk('text',{x:x0+segW/2,y:cy-h0/2-6,class:'vlab','text-anchor':'middle'});
-    n.textContent=x.n; s2.appendChild(n);
-    const l=mk('text',{x:x0+segW/2,y:H-12,class:'axis','text-anchor':'middle'});
-    l.textContent=x.label; s2.appendChild(l);
-    const pc=mk('text',{x:x0+segW/2,y:H-2,class:'axis','text-anchor':'middle'});
-    pc.setAttribute('fill',cv('--faint'));
-    pc.textContent=i?`${Math.round(x.n/base*100)}%`:'100%'; s2.appendChild(pc);
-  });
-  host.appendChild(s2);
-});
-
-// ---------- aging: status palette + icon + label ----------
-CHARTS.push(function(){
-  const host=document.getElementById('c-aging'); host.innerHTML='';
-  const d=D.aging,W=cw('c-aging'),rowH=27,H=d.length*rowH+8,max=Math.max(...d.map(x=>x.n),1),labW=96,barW=W-labW-46;
-  const s=mk('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
-  d.forEach((x,i)=>{
-    const y=i*rowH+4,w=Math.max(3,x.n/max*barW),col=cv('--'+x.role);
-    const go=()=>setFilter(a=>!['prospect','rejected','withdrawn'].includes(a.status)
-      && a.days_quiet>=x.lo && a.days_quiet<=x.hi, x.label+' quiet');
-    const tip=`${x.label}: ${x.n} live application${x.n===1?'':'s'} \u00b7 click to filter`;
-    const lb=mk('text',{x:0,y:y+16,class:'slab hit'});lb.textContent=`${x.icon} ${x.label}`;
-    lb.setAttribute('fill',col);bind(lb,tip);lb.addEventListener('click',go);s.appendChild(lb);
-    const bg=mk('rect',{x:labW,y:y+3,width:barW,height:14,fill:cv('--grid'),class:'hit'});
-    bind(bg,tip);bg.addEventListener('click',go);s.appendChild(bg);
-    const r=mk('rect',{x:labW,y:y+3,width:w,height:14,rx:2,fill:col,class:'hit'});
-    bind(r,tip);r.addEventListener('click',go);
-    s.appendChild(r);
-    const t=mk('text',{x:labW+barW+8,y:y+17,class:'vlab'});t.textContent=x.n;s.appendChild(t);
-  });
-  document.getElementById('c-aging').appendChild(s);
-});
-
 // ---------- weekly: grouped bars, 2 series + legend ----------
 CHARTS.push(function(){
   const d=D.weekly,W=cw('c-weekly'),H=150,pad={l:24,r:6,t:8,b:22};
@@ -888,7 +823,7 @@ CHARTS.push(function(){
   const host=document.getElementById('c-co');
   const d=D.companies;
   if(!d.length){host.innerHTML='<div class="muted small">Not enough repeat companies yet.</div>';return;}
-  const W=cw('c-co'),rowH=22,H=d.length*rowH+10,max=Math.max(...d.map(x=>x.n),1),labW=150,barW=W-labW-190;
+  const W=cw('c-co'),rowH=21,H=d.length*rowH+10,max=Math.max(...d.map(x=>x.n),1),labW=104,barW=W-labW-132;
   host.innerHTML=
     `<div class="legend"><span><i style="background:${cv('--good')}"></i>Active</span>
      <span><i style="background:${cv('--seq2')}"></i>Dormant</span>
@@ -898,7 +833,7 @@ CHARTS.push(function(){
   d.forEach((x,i)=>{
     const y=i*rowH+4;
     const nm=mk('text',{x:0,y:y+15,class:'slab hit'});
-    nm.textContent=x.company.length>22?x.company.slice(0,21)+'\u2026':x.company;
+    nm.textContent=x.company.length>15?x.company.slice(0,14)+'\u2026':x.company;
     bind(nm,`${x.company}: click to filter`);
     nm.addEventListener('click',()=>setFilter(a=>a.company===x.company,x.company));s.appendChild(nm);
     let off=0;
@@ -915,7 +850,7 @@ CHARTS.push(function(){
       s.appendChild(r); off+=w;
     });
     const t=mk('text',{x:labW+barW+12,y:y+16,class:'vlab'});
-    t.textContent=`${x.active} active`+(x.pos?` \u00b7 ${x.pos} advanced`:'')+` \u00b7 ${x.n} sent`;
+    t.textContent=`${x.active} live \u00b7 ${x.n} sent`+(x.pos?` \u00b7 ${x.pos} adv`:'');
     if(!x.active) t.setAttribute('fill',cv('--faint'));
     s.appendChild(t);
   });
