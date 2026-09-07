@@ -184,16 +184,25 @@ def location_verdict(loc: str, home: dict) -> str:
     return "elsewhere"
 
 
+CONFIG_PATH = str(pathlib.Path(__file__).resolve().parent.parent / "config.json")
+
+
 def _config():
-    import json, pathlib
-    p = pathlib.Path(__file__).resolve().parent.parent / "config.json"
-    return json.loads(p.read_text())
+    import json
+    return json.loads(pathlib.Path(CONFIG_PATH).read_text())
 
 
 def cmd_discover(a):
-    from .discover import discover
+    from .discover import discover, matches
     conn = db.connect(a.db); db.init(conn)
     cfg = _config()
+    if getattr(a, "broad", False):
+        from .aggregators import expand
+        e = expand(conn, cfg, CONFIG_PATH, matches)
+        print("broad: " + "  ".join(f"{k}={v}" for k, v in e.items() if k != "added"))
+        for x in e.get("added", []):
+            print(f"  + watchlist: {x}")
+        cfg = _config()          # reload: expand() may have appended boards
     s = discover(conn, cfg["watchlist"], cfg["titles"], cfg["locations"],
                  cfg.get("exclude_titles", []), cfg.get("comp_floor", 0))
     failed = s.pop("failed", [])
@@ -501,7 +510,11 @@ def main(argv=None):
     sub.add_parser("review").set_defaults(fn=cmd_review)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
-    sub.add_parser("discover").set_defaults(fn=cmd_discover)
+    d = sub.add_parser("discover")
+    d.add_argument("--broad", action="store_true",
+                   help="also sweep open aggregator feeds and promote any new employer "
+                        "onto the watchlist, so its board is polled directly next run")
+    d.set_defaults(fn=cmd_discover)
     ft = sub.add_parser("fit"); ft.add_argument("--limit", type=int, default=10)
     ft.add_argument("--rescore", action="store_true"); ft.set_defaults(fn=cmd_fit)
     pr = sub.add_parser("prospects"); pr.add_argument("--limit", type=int, default=20)
