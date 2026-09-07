@@ -348,14 +348,19 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
   margin:11px 0 3px;padding:0}
 .act-g:first-child{margin-top:0}
 /* Never let the list blow out the quadrant; it scrolls inside its own panel. */
-#actions{max-height:292px;overflow-y:scroll;margin-right:-6px;padding-right:8px;
-  scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-#actions::-webkit-scrollbar{width:9px;-webkit-appearance:none}
-#actions::-webkit-scrollbar-track{background:var(--grid);border-radius:var(--r-ctl)}
-#actions::-webkit-scrollbar-thumb{background:var(--faint);border-radius:var(--r-ctl);
-  border:2px solid var(--panel)}
+/* macOS uses OVERLAY scrollbars: they take no layout width and hide at rest, so a
+   scrollable panel looks truncated. Setting `scrollbar-width` opts into that native
+   path in Chrome 121+, which then ignores ::-webkit-scrollbar entirely. So the standard
+   properties are deliberately NOT set here: the webkit pseudo-elements are what force a
+   classic, always-visible bar that reserves its own gutter. */
+#actions{max-height:292px;overflow-y:scroll;margin-right:-4px}
+#actions::-webkit-scrollbar{width:10px;-webkit-appearance:none}
+#actions::-webkit-scrollbar-track{background:var(--grid)}
+#actions::-webkit-scrollbar-thumb{background:var(--faint);border:2px solid var(--panel)}
 #actions::-webkit-scrollbar-thumb:hover{background:var(--muted)}
-.int-scroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.int-scroll::-webkit-scrollbar{width:10px;-webkit-appearance:none}
+.int-scroll::-webkit-scrollbar-track{background:var(--grid)}
+.int-scroll::-webkit-scrollbar-thumb{background:var(--faint);border:2px solid var(--panel)}
 /* Drill-downs: same shape everywhere they appear, in an action row or a table row. */
 .dd{border-top:1px solid var(--grid)}
 .dd:first-child{border-top:0}
@@ -405,7 +410,7 @@ tr.r{cursor:pointer} tr.r:hover{background:var(--soft)} tr:last-child td{border-
 .s-prospect,.s-dormant{color:var(--faint)}
 .s-dormant{text-decoration:line-through;text-decoration-color:var(--line)}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px}
-.int-scroll{max-height:430px;overflow-y:auto;margin-right:-6px;padding-right:6px}
+.int-scroll{max-height:430px;overflow-y:scroll;margin-right:-4px}
 .int-row{display:grid;grid-template-columns:150px 62px 1fr 96px;gap:10px;align-items:center;
   padding:6px 6px;border-bottom:1px solid var(--grid);cursor:pointer}
 .int-row:hover{background:var(--soft)}

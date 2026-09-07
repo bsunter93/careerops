@@ -415,6 +415,13 @@ rejection was recorded, and the funnel then reported zero advances for the whole
 **Advance rate, not response rate.** 96% "response rate" counted auto-acks and was
 meaningless. Advance rate (past an ack ÷ submitted) is ~8% and is the real number.
 
+**A scrollable panel needs a scrollbar that reserves layout width.** macOS uses overlay
+scrollbars: zero width, hidden at rest, so the panel reads as truncated. Setting
+`scrollbar-width` opts into that native path, and Chrome 121+ then ignores
+`::-webkit-scrollbar` entirely, so styling it does nothing. Do not set the standard
+properties on these panels; the webkit pseudo-elements are what force a classic bar with
+its own gutter. Check `offsetWidth - clientWidth`, not the CSS.
+
 Filter state lives in one `Fs` object with composable predicates. Watch for falsy
 zero: hero card index 0 needs `!== null`, not a truthiness check.
 
