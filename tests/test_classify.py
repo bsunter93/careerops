@@ -333,6 +333,18 @@ class TestConditionalOutcomes(unittest.TestCase):
             self.assertEqual(classify(subj, "no-reply@ashbyhq.com", body).event_type,
                              "ack", subj)
 
+    def test_long_conditional_is_stripped_to_its_sentence_end(self):
+        """Microsoft's ack buries "not selected" 140 characters into an "If" clause."""
+        c = classify(
+            "Thank you for your application!",
+            "no-reply@email.careers.microsoft.com",
+            "Hi Benjamin, Thank you for taking the time to submit your application for "
+            "Intelligent Optimization Lead, Continuous Improvement. If you see the job "
+            "moved to an inactive state, that means the position is either no longer "
+            "open, you withdrew from consideration, or you were not selected for the "
+            "role.")
+        self.assertEqual(c.event_type, "ack")
+
     def test_declarative_rejections_still_land(self):
         for subj, body in [
             ("Update on your application",

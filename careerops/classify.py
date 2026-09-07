@@ -322,7 +322,7 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
 
 
 CONDITIONAL = re.compile(
-    r"\b(?:if|should|unless|in the event|in case)\b[^.!?;]{0,120}", re.I)
+    r"\b(?:if|should|unless|in the event|in case)\b[^.!?;\n]*", re.I)
 
 
 def _strip_conditionals(text: str) -> str:
@@ -332,6 +332,16 @@ def _strip_conditionals(text: str) -> str:
     eye on our jobs page". Matching "not selected" there turns an ack into a rejection and
     closes a live application, which is the most destructive misread available: it hides
     the role from Do next and marks the thread dead.
+
+    The clause runs to the end of its sentence, not a fixed character budget. A cap cuts
+    long conditionals mid-word and leaves the tail matchable: Microsoft's ack says "If you
+    see the job moved to an inactive state, that means the position is either no longer
+    open, you withdrew from consideration, or you were not selected for the role", and a
+    120-character window left "...or you were not selected for the role" behind.
+
+    Losing a real rejection whose outcome shares a sentence with a conditional is the
+    accepted trade. A missed rejection leaves a dead row on the board; a false one deletes
+    a live opportunity.
     """
     return CONDITIONAL.sub(" ", text or "")
 
