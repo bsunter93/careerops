@@ -447,7 +447,14 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .tr-row{display:flex;align-items:baseline;gap:9px;padding:3px 0;font-size:12px}
 .tr-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 .tr-d{font:400 11px var(--mono);flex:none}
-.dd-act{display:flex;gap:14px;align-items:center;margin-top:10px;padding-left:19px}
+.dd-act{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-left:19px}
+/* The others copy text; this one runs a build. It is the only action here with a
+   consequence, so it is the only one that looks like a control rather than a link. */
+.dd-act button.gen{border:1px solid var(--accent);border-radius:var(--r-ctl);
+  padding:3px 9px;color:var(--accent);background:none}
+.dd-act button.gen:hover{background:var(--accent);color:var(--panel);text-decoration:none}
+.dd-act button.gen:disabled{opacity:.6;cursor:progress;border-style:dashed;background:none;
+  color:var(--accent)}
 .dd-act button,.dd-act a{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;
   font:600 11.5px var(--sans);text-decoration:none}
 .dd-act button:hover,.dd-act a:hover{text-decoration:underline}
@@ -990,7 +997,8 @@ document.getElementById('actions').addEventListener('click',e=>{
         +`<div class="dd-act">${o.a.url?`<a href="${esc(o.a.url)}" target="_blank" rel="noopener">Open posting</a>`:''}`
         +`<button type="button" data-co="${esc(o.a.company)}">Show ${esc(o.a.company)} in the table</button>`
         +(o.a.status==='prospect'
-           ? `<button type="button" class="cp" data-cmd="careerops apply ${o.a.id}">Applied? copy <code>careerops apply ${o.a.id}</code></button>`
+           ? `<button type="button" class="gen" data-app="${o.a.id}">Generate resume</button>`
+             + `<button type="button" class="cp" data-cmd="careerops apply ${o.a.id}">Applied? copy <code>careerops apply ${o.a.id}</code></button>`
              + `<button type="button" class="cp" data-cmd="careerops snooze ${o.a.id} --days 30">Not now? copy <code>careerops snooze ${o.a.id}</code></button>`
            : '')
         +`</div>`
@@ -1004,6 +1012,29 @@ document.getElementById('actions').addEventListener('click',e=>{
   const b=e.target.closest('.dd-act button'); if(!b) return;
   e.stopPropagation();
   const row=b.closest('.act-w').querySelector('.act'); const o=acts[+row.dataset.i];
+  // Generate resume. Talks to `careerops serve` on localhost; falls back to copying
+  // the command when it is not running, or when the page is served over https and the
+  // browser blocks the call to http://127.0.0.1 before it leaves (mixed content).
+  if(b.classList.contains('gen')){
+    const id=b.dataset.app, cmd=`careerops resume ${id} --verify`;
+    const restore=(html,ms)=>setTimeout(()=>{b.innerHTML=html;b.disabled=false;},ms);
+    const fallback=()=>{
+      b.innerHTML='server not running, command copied';
+      if(navigator.clipboard) navigator.clipboard.writeText(cmd);
+      restore('Generate resume',3200);
+    };
+    b.disabled=true; b.innerHTML='building, this takes a minute';
+    fetch(`http://127.0.0.1:8765/resume?app=${encodeURIComponent(id)}`)
+      .then(r=>r.json())
+      .then(d=>{
+        if(!d.ok){b.innerHTML='failed: '+esc(d.error||'unknown');restore('Generate resume',5000);return;}
+        const f=(d.pdf||d.docx||'').split('/').pop();
+        b.innerHTML='saved '+esc(f)+(d.pages===1?' (1 page)':'');
+        restore('Generate resume',6000);
+      })
+      .catch(fallback);
+    return;
+  }
   if(b.dataset.cmd){
     const done=()=>{const o=b.innerHTML; b.innerHTML='copied, run it in your terminal';
       setTimeout(()=>b.innerHTML=o,2200);};

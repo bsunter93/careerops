@@ -97,7 +97,26 @@ Description: {jd}</job>
 
 Return ONLY JSON, no prose or fences:
 {{"tagline": "<3-6 words, uppercase, the role's own framing, no company name>",
-  "profile": "<3 sentences, max 62 words. Sentence 1: who he is. Sentence 2: the two most relevant concrete achievements from lead_with, with their numbers. Sentence 3: how he works plus the tools this job names. No em dashes. No first person. No adjectives like 'proven' or 'passionate'.>"}}"""
+  "profile": "<3 sentences, max 62 words. Sentence 1: a noun phrase naming the kind of operator he is. Sentence 2: the two most relevant concrete achievements from lead_with, with their numbers. Sentence 3: how he works plus the tools this job names. No em dashes. No adjectives like 'proven' or 'passionate'. Use no pronouns and no name: write 'Senior operations leader who ran...', never 'Benjamin Sunter is...' and never 'I ran...'.>"}}"""
+
+
+# Resume summaries carry an implied subject. The prompt asked for "who he is" while also
+# forbidding first person, which left third person as the only reading, and the model
+# duly produced "Benjamin Sunter is a senior operations leader. He authored...". Prompt
+# wording alone is not a guarantee, so the shape is enforced after the fact too.
+_LEAD_NAME = re.compile(r"^[A-Z][a-z]+(?: [A-Z][a-z.]+){0,2} (?:is|was) (?:an?|the) ")
+_SENT_PRONOUN = re.compile(r"(?<=[.!?] )(?:He|She|They) ")
+
+
+def _impersonal(text: str) -> str:
+    """Drop the subject so the summary reads in resume register."""
+    t = _LEAD_NAME.sub("", text or "").strip()
+    t = _SENT_PRONOUN.sub("", t)
+    # removing a subject leaves the verb lowercase mid-paragraph
+    t = re.sub(r"(?<=[.!?] )([a-z])", lambda m: m.group(1).upper(), t)
+    if t and t[0].islower():
+        t = t[0].upper() + t[1:]
+    return re.sub(r"\s{2,}", " ", t)
 
 
 def prose(company, title, jd, emphasize) -> Optional[dict]:
@@ -114,7 +133,7 @@ def prose(company, title, jd, emphasize) -> Optional[dict]:
     if not d or not d.get("tagline") or not d.get("profile"):
         return None
     d["tagline"] = d["tagline"].upper().replace("—", "").strip()
-    d["profile"] = d["profile"].replace("—", ",").strip()
+    d["profile"] = _impersonal(d["profile"].replace("—", ",").strip())
     return d
 
 

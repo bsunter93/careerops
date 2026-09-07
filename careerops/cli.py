@@ -421,6 +421,13 @@ def cmd_dashboard(a):
         subprocess.run(["open", p])
 
 
+def cmd_serve(a):
+    """Local companion so the dashboard's Do next buttons can actually build a resume."""
+    from .server import serve, DEFAULT_PORT
+    cfg = _config()
+    serve(a.port or DEFAULT_PORT, a.dir or cfg.get("resume_dir", "~/Desktop/resumes"), a.db)
+
+
 def cmd_resume(a):
     """Generate a tailored resume. With --verify, shrink until Word says one page.
 
@@ -515,6 +522,11 @@ def main(argv=None):
     sub.add_parser("review").set_defaults(fn=cmd_review)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
+    sv = sub.add_parser("serve", help="local server powering the dashboard resume buttons")
+    sv.add_argument("--port", type=int, default=None)
+    sv.add_argument("--dir", default=None, help="where PDFs land (default config.resume_dir)")
+    sv.set_defaults(fn=cmd_serve)
+
     d = sub.add_parser("discover")
     d.add_argument("--broad", action="store_true",
                    help="also sweep open aggregator feeds and promote any new employer "

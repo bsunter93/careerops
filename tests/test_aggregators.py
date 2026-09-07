@@ -139,3 +139,54 @@ class TestTitleNormalization(unittest.TestCase):
         self.assertEqual(first["new"], 1)
         self.assertEqual(second["new"], 0, "same posting counted new twice")
         self.assertEqual(conn.execute("SELECT COUNT(*) n FROM roles").fetchone()["n"], 1)
+
+
+class TestResumeRegister(unittest.TestCase):
+    """A resume summary carries an implied subject. The prompt asked for "who he is"
+    while forbidding first person, so the model wrote "Benjamin Sunter is... He
+    authored...". Prompt wording is not a guarantee; the shape is enforced after."""
+
+    def test_third_person_subject_is_removed(self):
+        from careerops.resume import _impersonal
+        got = _impersonal("Benjamin Sunter is a senior operations leader with governance "
+                          "experience. He authored the OKR architecture adopted into FY27.")
+        self.assertTrue(got.startswith("Senior operations leader"), got)
+        self.assertNotIn(" He ", " " + got)
+        self.assertIn("Authored the OKR", got)
+
+    def test_already_impersonal_text_is_untouched(self):
+        from careerops.resume import _impersonal
+        src = ("Senior operations leader with experience running board cadences. "
+               "Built an $18M operating cadence in seven days.")
+        self.assertEqual(_impersonal(src), src)
+
+
+class TestResumeServer(unittest.TestCase):
+    """The button takes an application id, never a path. A dashboard is a web page,
+    and the worst a bad request should manage is building a resume for the wrong role."""
+
+    def test_filenames_are_derived_not_accepted(self):
+        from careerops.server import _slug
+        self.assertEqual(_slug("Chief of Staff, Payer"), "ChiefOfStaffPayer")
+        self.assertEqual(_slug("../../etc/passwd"), "EtcPasswd")
+        self.assertEqual(_slug(""), "Role")
+
+    def test_out_path_lands_in_the_resume_dir(self):
+        import tempfile, pathlib
+        from careerops import db
+        from careerops.server import out_path
+        conn = db.connect(":memory:"); db.init(conn)
+        cid = db.get_or_create_company(conn, "Fivetran")
+        rid = db.get_or_create_role(conn, cid, "Lead Company Operations Manager")
+        aid = db.get_or_create_application(conn, rid, channel="discovered")
+        with tempfile.TemporaryDirectory() as d:
+            out, company, title = out_path(conn, aid, d)
+            self.assertEqual(pathlib.Path(out).parent, pathlib.Path(d))
+            self.assertTrue(pathlib.Path(out).name.endswith(".docx"))
+            self.assertEqual(company, "Fivetran")
+
+    def test_unknown_application_is_rejected(self):
+        from careerops import db
+        from careerops.server import out_path
+        conn = db.connect(":memory:"); db.init(conn)
+        self.assertEqual(out_path(conn, 999999, "/tmp")[0], None)
