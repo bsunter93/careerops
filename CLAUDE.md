@@ -181,6 +181,17 @@ own application ahead of its own ack. `merge_orphan_outcomes` repairs any that s
 `&nbsp;` inside plain text, which produced roles like "&nbsp;Technical Program Manager"
 and split one application into two.
 
+## Finding the decision maker
+
+**The reporting line is usually in the JD.** Employers publish "you will report to the
+Director of Business Growth for Experiences" and almost nobody reads it. A title plus a
+company name resolves to a person in one search; hunting an unnamed hiring manager does
+not, and two Google insiders with internal board access could not produce a usable one.
+`reports_to()` extracts it and the drill-down offers a LinkedIn search built from it.
+
+Guard against "people report to you", which is a headcount statement rather than a
+reporting line. 30 of the roles in the corpus publish theirs.
+
 ## Company intel
 
 `intel.py` fetches public employee sentiment: rating out of 5, sub-ratings, pros/cons.

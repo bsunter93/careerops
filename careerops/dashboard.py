@@ -5,7 +5,7 @@ so the page works offline, from a phone, or published as a private Artifact.
 Every status is expandable to the event log that produced it -- traceability is
 the point, not a feature.
 """
-import json, html, pathlib, sqlite3
+import json, html, pathlib, re, sqlite3
 from . import db
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -18,9 +18,38 @@ def _rows(conn, q, args=()):
     return [dict(r) for r in conn.execute(q, args).fetchall()]
 
 
+REPORTS_TO = re.compile(
+    r"(?:you(?:'ll| will)?\s+)?report(?:s|ing)?\s+(?:directly\s+)?(?:in)?to\s+"
+    r"(?:the\s+)?((?!you\b|me\b|us\b|them\b)[A-Z][^.;,\n<]{4,70})", re.I)
+
+
+def reports_to(jd: str):
+    """Pull the reporting line out of a job description.
+
+    A title is most of the work. "Director of Business Growth for Experiences" plus a
+    company name resolves to a person in one search, whereas hunting an unnamed hiring
+    manager does not. Employers publish this and almost nobody reads it.
+
+    Guard against "people report to you", which is a headcount statement, not a line.
+    """
+    if not jd:
+        return None
+    m = REPORTS_TO.search(jd)
+    if not m:
+        return None
+    t = html.unescape(re.sub(r"&\w+;", " ", m.group(1)))
+    t = re.sub(r"\s+", " ", t).strip(" ,.-&")
+    t = re.split(r"\b(?:and|as|who|which)\b|,", t)[0].strip(" ,.-&")
+    low = t.lower()
+    if low.startswith(("you", "me ", "us ", "them", "stakeholder", "leadership on")):
+        return None
+    return t if 4 <= len(t) <= 70 else None
+
+
 def collect(conn) -> dict:
     apps = _rows(conn, """
         SELECT a.id, a.snoozed_until, a.snooze_reason, c.name AS company, r.title AS role, r.location, r.url,
+               r.jd_text,
                a.applied_on, a.submitted_at, a.status, a.activity, a.channel, a.referral, a.fit_score,
                a.fit_reasoning, r.comp_min, r.comp_max,
                (SELECT MAX(occurred_at) FROM events e
@@ -94,6 +123,7 @@ def collect(conn) -> dict:
            FROM applications a JOIN roles r ON r.id = a.role_id
            WHERE r.posted_at IS NOT NULL""")}
     for a in apps:
+        a["reports_to"] = reports_to(a.pop("jd_text", None))
         a["posted_age"] = ages.get(a["id"])
         a["snoozed"] = a.get("snoozed_until") and a["snoozed_until"] > __import__("datetime").date.today().isoformat()
         a["ever_advanced"] = a["id"] in adv_ids or a["status"] in POS
@@ -956,7 +986,7 @@ document.getElementById('actions').addEventListener('click',e=>{
   const o=acts[+row.dataset.i], body=row.nextElementSibling;
   if(!body.dataset.built){
     body.innerHTML = o.a
-      ? fitHTML(o.a)+trackHTML(o.a.company)+sentimentHTML(o.a.company)
+      ? fitHTML(o.a)+contactHTML(o.a)+trackHTML(o.a.company)+sentimentHTML(o.a.company)
         +`<div class="dd-act">${o.a.url?`<a href="${esc(o.a.url)}" target="_blank" rel="noopener">Open posting</a>`:''}`
         +`<button type="button" data-co="${esc(o.a.company)}">Show ${esc(o.a.company)} in the table</button>`
         +(o.a.status==='prospect'
@@ -1046,6 +1076,17 @@ function sentimentHTML(co){
 }
 
 // A suggestion to apply somewhere means more beside what happened the last thirteen times.
+function contactHTML(a){
+  if(!a.reports_to) return '';
+  const q=encodeURIComponent(`"${a.reports_to}" ${a.company}`);
+  return `<details class="dd"><summary><span class="dd-k">Who you would report to</span>`
+    +`<span class="dd-v muted">${esc(a.reports_to)}</span></summary><div class="dd-b">`
+    +`<p class="int-li" style="padding-left:0">The posting names the reporting line, which is `
+    +`the person to reach rather than an unnamed hiring manager.</p>`
+    +`<div class="int-src"><a href="https://www.linkedin.com/search/results/people/?keywords=${q}" `
+    +`target="_blank" rel="noopener">find them on LinkedIn</a></div></div></details>`;
+}
+
 function trackHTML(co){
   const mine=D.apps.filter(a=>a.company===co&&a.status!=='prospect');
   if(!mine.length) return `<details class="dd"><summary><span class="dd-k">Your track record</span>`
@@ -1122,7 +1163,7 @@ tb.addEventListener('click',e=>{
   const a=D.apps.find(x=>x.id==tr.dataset.id);let h='';
   if(a.url)h+=`<div class="small"><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></div>`;
   if(a.comp_min)h+=`<div class="small muted">Posted comp: $${a.comp_min.toLocaleString()}–$${a.comp_max.toLocaleString()}</div>`;
-  h+=fitHTML(a)+trackHTML(a.company)+sentimentHTML(a.company);
+  h+=fitHTML(a)+contactHTML(a)+trackHTML(a.company)+sentimentHTML(a.company);
   h+=`<div class="small" style="margin-top:10px"><b>Event history (${a.events.length})</b></div>`;
   h+=a.events.length?a.events.map(e=>`<div class="ev">
       <div class="h">${(e.occurred_at||'').slice(0,10)} · ${esc(e.type)} <span class="muted">(${e.source}, conf ${e.confidence})</span></div>
