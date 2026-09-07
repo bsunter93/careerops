@@ -209,6 +209,24 @@ below the floor disqualifies.
 **Public board APIs only** (Greenhouse, Ashby, Lever). No LinkedIn/Indeed scraping:
 against their terms, brittle, and unnecessary.
 
+## Posting age beats fit
+
+**`roles.posted_at` is the dominant variable in the whole system.** A hiring manager on a
+desirable remote role described screening roughly the first 200 of 6,000 applicants and
+stopping, and said that is normal. Being early is a ~30x advantage that has nothing to do
+with the resume, which is why a 2% cold rate is what applying at random posting ages
+returns.
+
+So `prospects` and Do next band by age first and rank by fit inside the band. A 145-day-old
+85 (Pinterest) is a worse bet than a 3-day-old 78 (Figma), and any ranking that puts them
+in fit order is actively misleading.
+
+All three boards expose it: Greenhouse `first_published`, Ashby `publishedAt`, Lever
+`createdAt` in epoch milliseconds. `discovered_at` is not a substitute; it records when we
+first looked, not when the employer posted.
+
+Roles with no `posted_at` are usually delisted, which is itself a signal.
+
 ## Fit scoring
 
 Runs on the Anthropic Messages API (`ANTHROPIC_API_KEY` from a gitignored `.env`),

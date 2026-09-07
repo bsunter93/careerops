@@ -87,7 +87,12 @@ def collect(conn) -> dict:
         """SELECT DISTINCT application_id FROM events
            WHERE application_id IS NOT NULL
              AND type IN ('interview_invite','offer')""")}
+    ages = {r["id"]: r["age"] for r in conn.execute(
+        """SELECT a.id, CAST(julianday('now') - julianday(r.posted_at) AS INT) age
+           FROM applications a JOIN roles r ON r.id = a.role_id
+           WHERE r.posted_at IS NOT NULL""")}
     for a in apps:
+        a["posted_age"] = ages.get(a["id"])
         a["ever_advanced"] = a["id"] in adv_ids or a["status"] in POS
         a["ever_interviewed"] = a["id"] in itv_ids or a["status"] in ("interview", "offer")
     positive = [a for a in real if a["ever_advanced"]]
@@ -323,6 +328,10 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .act-v{flex:none;font:600 14px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.3px}
 .act.quiet .act-v{color:var(--muted);font-size:12.5px}
 .f-hi{color:var(--good)} .f-mid{color:var(--seq3)} .f-lo{color:var(--seq2)} .f-min{color:var(--muted)}
+.age{font:600 10px var(--mono);padding:1px 4px;border-radius:var(--r-ctl);margin-left:2px}
+.age.fresh{color:var(--good);background:color-mix(in srgb,var(--good) 13%,transparent)}
+.age.ok{color:var(--muted);background:var(--grid)}
+.age.old{color:var(--serious);background:color-mix(in srgb,var(--serious) 13%,transparent)}
 .act-x{flex:none;color:var(--faint);font:400 14px var(--mono);transition:transform .14s}
 .act.open .act-x{transform:rotate(90deg);color:var(--accent)}
 .act-d{padding:0 0 10px 13px}
@@ -921,12 +930,24 @@ const inPlay=D.apps.filter(a=>['interview','offer'].includes(a.status)&&a.activi
   .sort((a,b)=>(b.last_event||'').localeCompare(a.last_event||''));
 if(inPlay.length) push({group:'In play', note:'Live conversations. Keep these moving.'});
 inPlay.forEach(a=>push({a,c:'good',co:a.company,ro:a.role,val:a.days_quiet,unit:'d'}));
+// Posting age is the primary driver, not fit. A hiring manager screening the first 200
+// of 6,000 applicants means a 145-day-old req is closed in practice however good the
+// match is. Band by age, rank by fit inside the band, and never let a stale 85 outrank
+// a fresh 78.
+const AGE_BAND=a=>{const d=a.posted_age;
+  return d==null?3 : d<=7?0 : d<=21?1 : d<=45?2 : 3;};
+const BAND_LABEL=['posted this week','posted 1-3 weeks ago','posted 3-6 weeks ago','stale or unknown'];
 const nextUp=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score)
-  .sort((a,b)=>b.fit_score-a.fit_score).slice(0,8);
+  .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score).slice(0,8);
 (function(){const c=document.getElementById('dncap'); if(c) c.textContent=
   `Best ${nextUp.length} of ${T.prospects} prospects, ranked by fit. Open a row for the reasoning, your record there, and sentiment.`;})();
 if(nextUp.length) push({group:'Apply next'});
-nextUp.forEach(a=>push({a,c:'',co:a.company,ro:a.role,val:a.fit_score,fit:true}));
+let lastBand=-1;
+nextUp.forEach(a=>{
+  const b=AGE_BAND(a);
+  if(b!==lastBand){push({group:BAND_LABEL[b]}); lastBand=b;}
+  push({a,c:'',co:a.company,ro:a.role,val:a.fit_score,fit:true,
+        age:a.posted_age==null?null:a.posted_age});});
 const stale=D.apps.filter(a=>a.activity==='dormant');
 if(stale.length||T.review) push({group:'Housekeeping'});
 if(stale.length)push({c:'quiet',co:'Dormant',ro:`silent ${D.stale_days}+ days`,val:stale.length,
@@ -939,7 +960,8 @@ document.getElementById('actions').innerHTML = acts.map((o,i)=>{
   const val=o.val!=null?`<b class="act-v ${o.fit?fitClass(o.val):''}">${esc(o.val)}${esc(o.unit||'')}</b>`:'';
   return `<div class="act-w"><div class="act ${o.c} hit" data-i="${i}" tabindex="0" role="button" aria-expanded="false"`
     +` title="${esc(o.co)} \u2014 ${esc(o.ro)}">`
-    +`<div class="bar"></div><div class="act-t"><b>${esc(o.co)}</b> <span class="ro">${esc(o.ro)}</span></div>`
+    +`<div class="bar"></div><div class="act-t"><b>${esc(o.co)}</b> <span class="ro">${esc(o.ro)}</span>`
+    +(o.age!=null?` <span class="age ${o.age<=7?'fresh':o.age<=21?'ok':'old'}">${o.age}d</span>`:'')+`</div>`
     +val+`<span class="act-x">\u203a</span></div><div class="act-d" hidden></div></div>`;
 }).join('') || '<div class="act good"><div class="bar"></div><div class="act-t">Nothing needs attention.</div></div>';
 

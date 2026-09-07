@@ -32,6 +32,17 @@ def _strip_html(s: str) -> str:
     return re.sub(r"\s{2,}", " ", _h.unescape(re.sub(r"<[^>]+>", " ", s or ""))).strip()
 
 
+def _epoch_iso(ms) -> "Optional[str]":
+    """Lever returns epoch milliseconds."""
+    if not ms:
+        return None
+    from datetime import datetime, timezone
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).isoformat()[:19]
+    except Exception:
+        return None
+
+
 def fetch(board: str, slug: str) -> list:
     """Normalize each board's shape into one dict."""
     data = _get(ENDPOINTS[board].format(slug=slug))
@@ -46,6 +57,7 @@ def fetch(board: str, slug: str) -> list:
                 "url": j.get("absolute_url"),
                 "jd_text": _strip_html(j.get("content", "")),
                 "external_id": str(j.get("id")),
+                "posted_at": (j.get("first_published") or j.get("updated_at") or "")[:19],
             })
     elif board == "ashby":
         for j in data.get("jobs", []):
@@ -55,6 +67,7 @@ def fetch(board: str, slug: str) -> list:
                 "url": j.get("jobUrl"),
                 "jd_text": _strip_html(j.get("descriptionPlain") or j.get("descriptionHtml") or ""),
                 "external_id": str(j.get("id")),
+                "posted_at": (j.get("publishedAt") or "")[:19],
             })
     elif board == "lever":
         for j in data:
@@ -62,6 +75,7 @@ def fetch(board: str, slug: str) -> list:
                 "title": j.get("text"),
                 "location": (j.get("categories") or {}).get("location"),
                 "url": j.get("hostedUrl"),
+                "posted_at": _epoch_iso(j.get("createdAt")),
                 "jd_text": _strip_html(j.get("descriptionPlain") or j.get("description") or ""),
                 "external_id": str(j.get("id")),
             })
@@ -139,13 +153,15 @@ def discover(conn, watchlist: list, titles: list, locations: list,
                 "SELECT id, jd_hash FROM roles WHERE company_id=? AND title=? COLLATE NOCASE",
                 (cid, j["title"])).fetchone()
             if existing:
+                conn.execute("UPDATE roles SET posted_at = COALESCE(?, posted_at) WHERE id=?",
+                             (j.get("posted_at"), existing["id"]))
                 if existing["jd_hash"] != h:
                     conn.execute("UPDATE roles SET jd_text=?, jd_hash=?, url=?, location=? WHERE id=?",
                                  (jd, h, j.get("url"), j.get("location"), existing["id"]))
                 continue
             db.get_or_create_role(conn, cid, j["title"], location=j.get("location"),
                                   source=w["board"], url=j.get("url"), jd_text=jd, jd_hash=h,
-                                  comp_min=cmin, comp_max=cmax)
+                                  comp_min=cmin, comp_max=cmax, posted_at=j.get("posted_at"))
             stats["new"] += 1
     conn.commit()
     return stats

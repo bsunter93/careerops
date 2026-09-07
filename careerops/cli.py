@@ -213,43 +213,46 @@ def cmd_fit(a):
 
 
 def cmd_prospects(a):
+    """Ranked by how long the req has been open, then by fit inside each band.
+
+    A hiring manager on a desirable remote role screens the first few hundred of several
+    thousand applicants and stops. Posting age therefore dominates fit: a 145-day-old
+    85 is a worse bet than a 3-day-old 78.
+    """
     conn = db.connect(a.db)
-    rows = conn.execute("""SELECT a.id, c.name company, r.title, r.location, a.fit_score,
-                                  json_extract(a.fit_reasoning,'$.one_line') one_line
-                           FROM applications a JOIN roles r ON r.id=a.role_id
-                           JOIN companies c ON c.id=r.company_id
-                           WHERE a.status='prospect' AND a.fit_score >= ?
-                           ORDER BY a.fit_score DESC LIMIT ?""",
-                        (a.min if a.min is not None else _config().get("min_fit_to_surface", 0),
-                         a.limit * 4)).fetchall()
-    if not rows:
-        print("no scored prospects. run: discover, then fit"); return
-    pol = _config().get("company_policy", {})
-    kept, suppressed = [], []
-    for r in rows:
-        rule = next((v for k, v in pol.items() if k.lower() in (r["company"] or "").lower()), None)
-        if rule:
-            loc = (r["location"] or "").lower()
-            if r["fit_score"] < rule.get("min_score", 0):
-                suppressed.append((r, f"below {rule['min_score']} threshold")); continue
-            if rule.get("require_location"):
-                v = location_verdict(r["location"], _config().get("home_locations", {}))
-                if v == "elsewhere":
-                    suppressed.append((r, f"location: {(r['location'] or '?')[:34]}")); continue
-                r = dict(r); r["_loc_note"] = "verify location eligibility" if v == "ambiguous" else ""
-        kept.append(r)
-    rows = kept[:a.limit]
-    for r in rows:
-        print(f"[{r['id']:>3}] {r['fit_score']:>3}  {r['company']} - {r['title'][:52]}")
-        print(f"          {r['location'] or ''}")
-        rule = next((v for k, v in pol.items() if k.lower() in (r["company"] or "").lower()), None)
-        if rule:
-            print(f"          [!] {r['company']}: conditional - {rule.get('rule','')[:140]}")
-            if r.get("_loc_note"):
-                print(f"          [?] {r['_loc_note']}")
-        if r["one_line"]:
-            print(f"          {r['one_line']}")
-    _print_suppressed(suppressed)
+    rows = conn.execute("""
+        SELECT a.id, c.name company, r.title, r.location, a.fit_score, r.url,
+               CAST(julianday('now') - julianday(r.posted_at) AS INT) age,
+               json_extract(a.fit_reasoning, '$.one_line') one_line
+        FROM applications a
+        JOIN roles r     ON r.id = a.role_id
+        JOIN companies c ON c.id = r.company_id
+        WHERE a.status = 'prospect' AND a.fit_score IS NOT NULL
+          AND a.fit_score >= COALESCE(?, 0)
+        ORDER BY (age IS NULL), age ASC, a.fit_score DESC""",
+        (a.min if a.min is not None else 70,)).fetchall()
+    bands = [(0, 7, "POSTED THIS WEEK  (apply today)"),
+             (8, 21, "1 TO 3 WEEKS OLD  (still worth it)"),
+             (22, 45, "3 TO 6 WEEKS OLD  (long odds)"),
+             (46, 10**6, "OVER 6 WEEKS  (screening has almost certainly stopped)")]
+    shown = 0
+    for lo, hi, label in bands:
+        grp = [r for r in rows if r["age"] is not None and lo <= r["age"] <= hi]
+        if not grp:
+            continue
+        print(f"\n{label}")
+        for r in grp[:a.limit]:
+            print(f"  [{r['id']:>3}] {r['fit_score']:>3.0f}  {r['age']:>3}d  {r['company']} - {r['title'][:46]}")
+            if r["location"]:
+                print(f"            {r['location'][:70]}")
+            shown += 1
+    unknown = [r for r in rows if r["age"] is None]
+    if unknown:
+        print(f"\nNO POSTING DATE  ({len(unknown)}, mostly delisted or pre-dating age tracking)")
+        for r in unknown[:5]:
+            print(f"  [{r['id']:>3}] {r['fit_score']:>3.0f}   ??d  {r['company']} - {r['title'][:46]}")
+    if not shown and not unknown:
+        print("no scored prospects above the threshold")
 
 
 def _print_suppressed(suppressed):
