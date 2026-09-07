@@ -81,8 +81,32 @@ def init(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_ALIASES = None
+
+
+def _aliases() -> dict:
+    """config.company_aliases, lowercased. One employer, one row.
+
+    Companies rebrand and merge, and the mail follows the new name before the job board
+    does. Fivetran's acknowledgement arrived from "Fivetran + dbt Labs" while its board
+    still published as "Fivetran", so the ack created a second company and a phantom
+    "Unknown role" application instead of attaching to the one already applied to.
+    """
+    global _ALIASES
+    if _ALIASES is None:
+        try:
+            import json
+            cfg = json.loads((pathlib.Path(__file__).resolve().parent.parent
+                              / "config.json").read_text())
+            _ALIASES = {k.lower(): v for k, v in (cfg.get("company_aliases") or {}).items()}
+        except Exception:
+            _ALIASES = {}
+    return _ALIASES
+
+
 def get_or_create_company(conn, name: str, domain: Optional[str] = None) -> int:
     name = name.strip()
+    name = _aliases().get(name.lower(), name)
     row = conn.execute("SELECT id FROM companies WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
     if row:
         if domain:

@@ -190,3 +190,38 @@ class TestResumeServer(unittest.TestCase):
         from careerops.server import out_path
         conn = db.connect(":memory:"); db.init(conn)
         self.assertEqual(out_path(conn, 999999, "/tmp")[0], None)
+
+
+class TestCompanyAliases(unittest.TestCase):
+    """One employer, one row. Companies rebrand and merge, and the mail follows the new
+    name before the job board does: Fivetran's ack arrived from "Fivetran + dbt Labs"
+    while its board still published as "Fivetran", so it created a second company and a
+    phantom "Unknown role" application beside the one already applied to."""
+
+    def test_an_alias_resolves_to_the_existing_company(self):
+        from unittest import mock
+        from careerops import db
+        conn = db.connect(":memory:"); db.init(conn)
+        with mock.patch.object(db, "_ALIASES", {"fivetran + dbt labs": "Fivetran"}):
+            a = db.get_or_create_company(conn, "Fivetran")
+            b = db.get_or_create_company(conn, "Fivetran + dbt Labs")
+        self.assertEqual(a, b)
+        self.assertEqual(conn.execute("SELECT COUNT(*) n FROM companies").fetchone()["n"], 1)
+
+    def test_matching_is_case_insensitive(self):
+        from unittest import mock
+        from careerops import db
+        conn = db.connect(":memory:"); db.init(conn)
+        with mock.patch.object(db, "_ALIASES", {"fivetran + dbt labs": "Fivetran"}):
+            a = db.get_or_create_company(conn, "Fivetran")
+            b = db.get_or_create_company(conn, "FIVETRAN + DBT LABS")
+        self.assertEqual(a, b)
+
+    def test_unaliased_companies_are_untouched(self):
+        from unittest import mock
+        from careerops import db
+        conn = db.connect(":memory:"); db.init(conn)
+        with mock.patch.object(db, "_ALIASES", {"fivetran + dbt labs": "Fivetran"}):
+            a = db.get_or_create_company(conn, "Arcadia")
+            b = db.get_or_create_company(conn, "InStride Health")
+        self.assertNotEqual(a, b)
