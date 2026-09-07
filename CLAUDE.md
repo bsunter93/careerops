@@ -248,6 +248,18 @@ Use `CAREEROPS_API_BASE` to override without colliding.
 section; dealbreakers cap the score under 40 regardless of skill match. Encoding the
 IC-track preference moved a role from 79 to 22 because its mandate was building a team.
 
+**Some employers cap applications per window, and a rejection still burns a slot.**
+Headway allows 2 across all roles per 60 days. A soft rejection in July had been sitting
+misclassified as an ack, so the system showed one slot used when both were gone, and the
+85-scoring Chief of Staff role could not be applied to. `company_policy.<name>.application_limit`
+= `{count, days}`; Do next shows used/cap on every row for that company and locks the row
+with the reopen date once the cap is hit. Where a cap exists, surface only the single
+highest-scoring open role, never a batch.
+
+**Soft rejections carry no rejection language.** "We do not feel that we have the best
+match" and "we'll keep your information on file" evade every hard pattern and fall through
+to the ack rule, leaving dead applications sitting in the live pipeline indefinitely.
+
 **Company policy** (`config.json → company_policy`) injects history into the prompt and
 gates surfacing. Location uses `location_verdict()`: `remote` / `colorado` / `ambiguous`
 / `elsewhere`. Ambiguous national postings pass *with a flag*, because under-filtering beats

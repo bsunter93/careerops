@@ -8,6 +8,8 @@ the point, not a feature.
 import json, html, pathlib, sqlite3
 from . import db
 
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 STALE_DAYS = 21
 ACT_SCORE = 75
 
@@ -207,8 +209,35 @@ def collect(conn) -> dict:
           AND e.source != 'portal'
         ORDER BY e.occurred_at DESC LIMIT 14""")]
 
+    # Some employers cap applications per window (Headway: 2 per 60 days) and a
+    # rejection still consumes a slot. Spending one on a 78 before a 85 is posted is a
+    # real, irreversible cost, so the cap has to be visible at the moment of choosing.
+    limits = {}
+    try:
+        pol = json.loads((ROOT / "config.json").read_text()).get("company_policy", {})
+    except Exception:
+        pol = {}
+    for name, rules in pol.items():
+        lim = rules.get("application_limit")
+        if not lim:
+            continue
+        used = conn.execute("""
+            SELECT COUNT(*) n FROM applications a
+            JOIN roles r ON r.id = a.role_id JOIN companies c ON c.id = r.company_id
+            WHERE c.name = ? AND a.status != 'prospect'
+              AND julianday('now') - julianday(COALESCE(a.submitted_at, a.applied_on)) <= ?""",
+            (name, lim["days"])).fetchone()["n"]
+        nxt = conn.execute("""
+            SELECT MIN(date(COALESCE(a.submitted_at, a.applied_on), '+' || ? || ' days')) d
+            FROM applications a JOIN roles r ON r.id = a.role_id
+            JOIN companies c ON c.id = r.company_id
+            WHERE c.name = ? AND a.status != 'prospect'
+              AND julianday('now') - julianday(COALESCE(a.submitted_at, a.applied_on)) <= ?""",
+            (lim["days"], name, lim["days"])).fetchone()["d"]
+        limits[name] = {"used": used, "cap": lim["count"], "days": lim["days"], "opens": nxt}
+
     return {
-        "apps": apps, "intel": intel, "recent": recent,
+        "apps": apps, "intel": intel, "recent": recent, "limits": limits,
         "funnel": funnel, "aging": aging, "weekly": weekly,
         "fit_hist": fit_hist, "fit_low": fit_low, "companies": companies,
         "totals": {
@@ -338,6 +367,8 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .age.fresh{color:var(--good);background:color-mix(in srgb,var(--good) 13%,transparent)}
 .age.ok{color:var(--muted);background:var(--grid)}
 .age.old{color:var(--serious);background:color-mix(in srgb,var(--serious) 13%,transparent)}
+.lock{font:600 10.5px var(--mono);color:var(--critical);margin-top:2px;white-space:normal}
+.lock.warn{color:var(--warning)}
 .act-x{flex:none;color:var(--faint);font:400 14px var(--mono);transition:transform .14s}
 .act.open .act-x{transform:rotate(90deg);color:var(--accent)}
 .act-d{padding:0 0 10px 13px}
@@ -888,11 +919,15 @@ const nextUp=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score)
   `Best ${nextUp.length} of ${T.prospects} prospects, ranked by fit. Open a row for the reasoning, your record there, and sentiment.`;})();
 if(nextUp.length) push({group:'Apply next'});
 let lastBand=-1;
+const LIM=D.limits||{};
 nextUp.forEach(a=>{
   const b=AGE_BAND(a);
   if(b!==lastBand){push({group:BAND_LABEL[b]}); lastBand=b;}
+  const L=LIM[a.company];
   push({a,c:'',co:a.company,ro:a.role,val:a.fit_score,fit:true,
-        age:a.posted_age==null?null:a.posted_age});});
+        age:a.posted_age==null?null:a.posted_age,
+        lock:L&&L.used>=L.cap?`${L.used}/${L.cap} in ${L.days}d \u00b7 opens ${L.opens}`:null,
+        warn:L&&L.used<L.cap?`${L.used}/${L.cap} applications used in ${L.days}d`:null});});
 const stale=D.apps.filter(a=>a.activity==='dormant');
 if(stale.length||T.review) push({group:'Housekeeping'});
 if(stale.length)push({c:'quiet',co:'Dormant',ro:`silent ${D.stale_days}+ days`,val:stale.length,
@@ -906,7 +941,9 @@ document.getElementById('actions').innerHTML = acts.map((o,i)=>{
   return `<div class="act-w"><div class="act ${o.c} hit" data-i="${i}" tabindex="0" role="button" aria-expanded="false"`
     +` title="${esc(o.co)} \u2014 ${esc(o.ro)}">`
     +`<div class="bar"></div><div class="act-t"><b>${esc(o.co)}</b> <span class="ro">${esc(o.ro)}</span>`
-    +(o.age!=null?` <span class="age ${o.age<=7?'fresh':o.age<=21?'ok':'old'}">${o.age}d</span>`:'')+`</div>`
+    +(o.age!=null?` <span class="age ${o.age<=7?'fresh':o.age<=21?'ok':'old'}">${o.age}d</span>`:'')
+    +(o.lock?`<div class="lock">\u26a0 capped: ${esc(o.lock)}</div>`
+      :o.warn?`<div class="lock warn">${esc(o.warn)}</div>`:'')+`</div>`
     +val+`<span class="act-x">\u203a</span></div><div class="act-d" hidden></div></div>`;
 }).join('') || '<div class="act good"><div class="bar"></div><div class="act-t">Nothing needs attention.</div></div>';
 

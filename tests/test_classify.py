@@ -343,3 +343,37 @@ class TestConditionalOutcomes(unittest.TestCase):
         ]:
             self.assertEqual(classify(subj, "no-reply@greenhouse-mail.io", body).event_type,
                              "rejection", subj)
+
+
+class TestSoftRejections(unittest.TestCase):
+    """Polite declines carry no hard rejection language and fell through to the ack rule.
+
+    Headway's read "we do not feel that we have the best match to move forward with
+    interviews right now... we'll keep your information on file". No "unfortunately", no
+    "other candidates", no "not proceeding". It sat in the pipeline as a live application
+    for seven weeks and hid the fact that a Headway slot had been spent.
+    """
+
+    def test_soft_declines_are_rejections(self):
+        for subj, body in [
+            ("An update on your application status with Headway",
+             "While we appreciate your interest, we do not feel that we have the best "
+             "match to move forward with interviews right now."),
+            ("Your application", "We will keep your resume on file should a better fit arise."),
+            ("Update", "We have decided to pursue other candidates at this time."),
+            ("Status", "You were not the right fit for this particular opening."),
+        ]:
+            self.assertEqual(classify(subj, "no-reply@ashbyhq.com", body).event_type,
+                             "rejection", subj)
+
+    def test_conditional_on_file_is_still_an_ack(self):
+        """"If you are not selected we'll keep your resume on file" is boilerplate."""
+        c = classify("Application received", "no-reply@ashbyhq.com",
+                     "Thanks for applying. If you are not selected we will keep your "
+                     "resume on file for future roles.")
+        self.assertEqual(c.event_type, "ack")
+
+    def test_positive_match_language_is_not_a_rejection(self):
+        c = classify("Interview with Stripe", "recruiting@stripe.com",
+                     "We think you are a strong match and would like to schedule an interview.")
+        self.assertEqual(c.event_type, "interview_invite")

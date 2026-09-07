@@ -98,7 +98,16 @@ ACK_SUBJECT = re.compile(
 # Order matters: strongest signal wins.
 EVENT_PATTERNS = [
     ("offer",             [r"\bwe(?:'| a)re (?:pleased|excited) to (?:extend|offer)\b", r"\byour offer\b", r"\boffer letter\b"]),
-    ("rejection",         [r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
+    ("rejection",         [
+                           # Soft rejections evade every hard pattern: no "unfortunately",
+                           # no "other candidates", just a polite decline. Left unmatched
+                           # they fall through to the ack rule and sit in the pipeline as
+                           # live applications forever.
+                           r"\bwe (?:do|did) not feel\b",
+                           r"\bkeep your (?:information|resume|r\u00e9sum\u00e9|details|profile|application) on file\b",
+                           r"\bnot (?:a |the )?(?:best|right|strong(?:est)?) (?:match|fit)\b",
+                           r"\bpursu(?:e|ing) other candidates\b",
+                           r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
                            r"\b(?:position|role|requisition|req) (?:has been |was |is )?(?:filled|closed|cancell?ed)\b",
                            r"\bwe have (?:filled|closed|cancell?ed)\b",
                            r"\bfilled (?:this|the) (?:position|role)\b",
