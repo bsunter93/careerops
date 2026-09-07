@@ -225,3 +225,46 @@ class TestCompanyAliases(unittest.TestCase):
             a = db.get_or_create_company(conn, "Arcadia")
             b = db.get_or_create_company(conn, "InStride Health")
         self.assertNotEqual(a, b)
+
+
+class TestAckAdoptsThePendingProspect(unittest.TestCase):
+    """Applying on a company's site means the acknowledgement usually arrives before
+    `careerops apply` is run. The prospect row has no submitted_at, so the near-match
+    cannot see it, and the ack used to open a second application beside it: one role,
+    two rows, two different statuses, listed twice in Recent activity."""
+
+    def _setup(self):
+        from careerops import db
+        conn = db.connect(":memory:"); db.init(conn)
+        cid = db.get_or_create_company(conn, "Airbnb")
+        rid = db.get_or_create_role(conn, cid, "Senior Programs & Business Operations Lead")
+        return db, conn, rid
+
+    def test_ack_adopts_the_prospect_instead_of_opening_a_second_row(self):
+        db, conn, rid = self._setup()
+        pid = db.get_or_create_application(conn, rid, channel="discovered")
+        conn.execute("UPDATE applications SET status='prospect' WHERE id=?", (pid,))
+        aid = db.get_or_create_application(conn, rid, submitted_at="2026-09-07T04:12:05",
+                                           is_ack=True, channel="gmail")
+        self.assertEqual(aid, pid, "ack opened a second application")
+        self.assertEqual(conn.execute("SELECT COUNT(*) n FROM applications").fetchone()["n"], 1)
+        row = conn.execute("SELECT submitted_at, applied_on FROM applications WHERE id=?",
+                           (pid,)).fetchone()
+        self.assertEqual(row["applied_on"], "2026-09-07")
+
+    def test_a_real_resubmission_still_opens_its_own_row(self):
+        """Re-applying months later is a second submission, not the same one."""
+        db, conn, rid = self._setup()
+        first = db.get_or_create_application(conn, rid, submitted_at="2026-01-05T09:00:00",
+                                             is_ack=True, channel="gmail")
+        second = db.get_or_create_application(conn, rid, submitted_at="2026-09-07T04:12:05",
+                                              is_ack=True, channel="gmail")
+        self.assertNotEqual(first, second)
+
+    def test_a_duplicate_ack_for_one_submission_does_not(self):
+        db, conn, rid = self._setup()
+        a = db.get_or_create_application(conn, rid, submitted_at="2026-09-07T04:12:05",
+                                         is_ack=True, channel="gmail")
+        b = db.get_or_create_application(conn, rid, submitted_at="2026-09-07T05:30:00",
+                                         is_ack=True, channel="gmail")
+        self.assertEqual(a, b)

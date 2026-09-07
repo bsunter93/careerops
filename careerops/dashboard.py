@@ -229,15 +229,23 @@ def collect(conn) -> dict:
 
     # Recent activity. Answers "what has moved lately", which no chart here did: the
     # funnel is all-time, weekly is counts, and Do next only shows what has NOT happened.
+    # One row per application, not per event. A submission that was acknowledged and
+    # then rejected is one thing that happened to one role, and listing it twice reads
+    # as two opportunities. The label is the application's derived status rather than
+    # the last event's type, so the row says where the application stands rather than
+    # what most recently arrived in the inbox.
     recent = [dict(r) for r in conn.execute("""
-        SELECT e.occurred_at, e.type, e.source, a.id AS app_id, c.name AS company,
-               r.title AS role, a.status, a.fit_score
-        FROM events e
-        JOIN applications a ON a.id = e.application_id
+        SELECT a.id AS app_id, c.name AS company, r.title AS role, a.status, a.fit_score,
+               e.occurred_at, e.source
+        FROM applications a
         JOIN roles r        ON r.id = a.role_id
         JOIN companies c    ON c.id = r.company_id
-        WHERE e.type NOT IN ('noise', 'unresolved')
-          AND e.source != 'portal'
+        JOIN events e ON e.id = (
+            SELECT e2.id FROM events e2
+             WHERE e2.application_id = a.id
+               AND e2.type NOT IN ('noise', 'unresolved')
+               AND e2.source != 'portal'
+             ORDER BY e2.occurred_at DESC, e2.id DESC LIMIT 1)
         ORDER BY e.occurred_at DESC LIMIT 14""")]
 
     # Some employers cap applications per window (Headway: 2 per 60 days) and a
@@ -1060,11 +1068,13 @@ document.getElementById('actions').addEventListener('keydown',e=>{
   const host=document.getElementById('c-recent'); if(!host) return;
   const rows=D.recent||[];
   if(!rows.length){host.innerHTML='<div class="muted small">Nothing yet. Run sync, or record a submission with <code>careerops apply &lt;id&gt;</code>.</div>';return;}
-  const LABEL={submitted:'applied', ack:'acknowledged', recruiter_outreach:'recruiter',
-               assessment:'assessment', interview_invite:'interview', offer:'offer',
-               rejection:'rejected'};
-  const HUE={submitted:'accent', ack:'faint', recruiter_outreach:'seq3', assessment:'seq3',
-             interview_invite:'good', offer:'good', rejection:'critical'};
+  // Keyed on the application's status, not on event types: the row reports where
+  // something stands, not what last landed in the inbox.
+  const LABEL={applied:'applied', acked:'acknowledged', in_process:'in process',
+               interview:'interview', offer:'offer', rejection:'rejected',
+               rejected:'rejected', withdrawn:'withdrawn', prospect:'prospect'};
+  const HUE={applied:'accent', acked:'faint', in_process:'seq3', interview:'good',
+             offer:'good', rejected:'critical', withdrawn:'muted', prospect:'muted'};
   const today=new Date(); today.setHours(0,0,0,0);
   const ago=d=>{const t=new Date(d.slice(0,10)+'T00:00:00');
     const n=Math.round((today-t)/864e5);
@@ -1074,7 +1084,7 @@ document.getElementById('actions').addEventListener('keydown',e=>{
       title="${esc(r.company)} \u2014 ${esc(r.role)}${r.source&&r.source!=='gmail'?` \u00b7 recorded from ${esc(r.source)}, so the date is when it was logged`:``}">
     <span class="rc-d">${esc(ago(r.occurred_at))}</span>
     <span class="rc-t"><b>${esc(r.company)}</b> <span class="ro">${esc(r.role)}</span></span>
-    <span class="rc-e" style="color:var(--${HUE[r.type]||'muted'})">${esc(LABEL[r.type]||r.type)}${
+    <span class="rc-e" style="color:var(--${HUE[r.status]||'muted'})">${esc(LABEL[r.status]||r.status)}${
       r.source&&r.source!=='gmail'?`<span class="rc-s">${esc(r.source)}</span>`:''}</span>
   </div>`).join('');
   host.addEventListener('click',e=>{

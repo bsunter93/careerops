@@ -149,6 +149,20 @@ def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = No
             (role_id, submitted_at, RESUBMIT_HOURS)).fetchone()
         if near:
             return near["id"]                      # same submission, duplicate email
+        # An acknowledgement is proof a submission happened. If the role is already
+        # tracked as a prospect, that row IS the submission: adopt it. The match above
+        # cannot see it, because a prospect has no submitted_at, and applying on a
+        # company's site means the ack usually arrives before `careerops apply` is run.
+        # Without this the ack opens a second application beside the prospect, and the
+        # same role shows up twice with two different statuses.
+        prospect = conn.execute(
+            """SELECT id FROM applications WHERE role_id = ? AND status = 'prospect'
+               AND submitted_at IS NULL ORDER BY id LIMIT 1""", (role_id,)).fetchone()
+        if prospect:
+            conn.execute(
+                """UPDATE applications SET submitted_at = ?, applied_on = COALESCE(applied_on, ?)
+                   WHERE id = ?""", (submitted_at, (submitted_at or "")[:10], prospect["id"]))
+            return prospect["id"]
     else:
         row = conn.execute("""SELECT id FROM applications WHERE role_id = ?
                               ORDER BY COALESCE(submitted_at, applied_on) DESC LIMIT 1""",
