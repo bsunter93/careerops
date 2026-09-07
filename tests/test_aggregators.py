@@ -268,3 +268,49 @@ class TestAckAdoptsThePendingProspect(unittest.TestCase):
         b = db.get_or_create_application(conn, rid, submitted_at="2026-09-07T05:30:00",
                                          is_ack=True, channel="gmail")
         self.assertEqual(a, b)
+
+
+class TestAtsTenantAddress(unittest.TestCase):
+    """Workday hosts every employer on one domain and signs its mail with a product
+    name. "AutoNotification workday <autodesk@myworkday.com>" reached the board as a
+    company literally called "AutoNotification workday", holding two real Autodesk
+    rejections. The tenant in the local part is the only place the employer appears."""
+
+    def test_the_tenant_in_the_address_is_the_employer(self):
+        from careerops.classify import classify
+        c = classify("Update from Autodesk on 26WD100753 Senior Principal Program Manager",
+                     "AutoNotification workday <autodesk@myworkday.com>",
+                     "We have decided to move forward with other candidates.")
+        self.assertEqual(c.company, "Autodesk")
+        self.assertEqual(c.event_type, "rejection")
+
+    def test_the_vendors_own_name_is_never_the_company(self):
+        from careerops.classify import sender_name
+        for n in ("AutoNotification workday <x@myworkday.com>",
+                  "Workday AutoNotification <x@myworkday.com>",
+                  "myworkday <x@myworkday.com>"):
+            self.assertIsNone(sender_name(n), n)
+
+    def test_a_generic_mailbox_is_not_a_tenant(self):
+        from careerops.classify import company_from_ats_address
+        for a in ("noreply@myworkday.com", "info@myworkday.com", "jobs@myworkday.com"):
+            self.assertIsNone(company_from_ats_address(a), a)
+
+    def test_non_workday_addresses_are_left_alone(self):
+        from careerops.classify import company_from_ats_address
+        self.assertIsNone(company_from_ats_address("no-reply@us.greenhouse-mail.io"))
+
+
+class TestRoleTitleKeepsItsOwnWords(unittest.TestCase):
+    def test_a_named_company_suffix_is_stripped(self):
+        from careerops.classify import strip_company_suffix as f
+        self.assertEqual(f("Senior Principal Program Manager, GTM PMO at Autodesk", "Autodesk"),
+                         "Senior Principal Program Manager, GTM PMO")
+
+    def test_titles_that_merely_end_in_at_something_survive(self):
+        """A general "at <Capitalized Words>" rule quietly eats real titles."""
+        from careerops.classify import strip_company_suffix as f
+        for t in ("Program Manager, Analytics at Scale", "Engineering Manager, Trust at Work",
+                  "Director, Data at Rest"):
+            self.assertEqual(f(t, "Autodesk"), t)
+            self.assertEqual(f(t, None), t)

@@ -529,13 +529,6 @@ text.hit{text-decoration:underline;text-decoration-color:var(--line);text-underl
 #sticky{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:9px;flex-wrap:wrap;
   padding:7px 12px;margin:0 0 16px;background:var(--panel);border:1px solid var(--line);
   border-radius:0;box-shadow:0 1px 0 var(--line)}
-.jump{display:flex;align-items:baseline;gap:0;flex:none}
-.jump a{color:var(--muted);text-decoration:none;font:400 12px var(--sans);padding:0 2px;
-  border-bottom:1px solid transparent}
-.jump a+a:before{content:"\00b7";color:var(--line);padding:0 9px 0 7px}
-.jump a:hover{color:var(--ink)}
-.jump a.here{color:var(--ink);font-weight:600;border-bottom-color:var(--faint)}
-.jump a.here:before{border-bottom-color:transparent}
 #sticky .sep{width:1px;align-self:stretch;background:var(--line);margin:0 3px}
 #sticky.filtered .sep,#sticky.filtered #sk-clr{display:block}
 #sticky:not(.filtered) .sep,#sticky:not(.filtered) #sk-clr,
@@ -547,7 +540,6 @@ text.hit{text-decoration:underline;text-decoration-color:var(--line);text-underl
 .panel{position:relative}
 .panel.shut>.cap,.panel.shut>div:not(.fold):not(.legend),.panel.shut>.legend{display:none}
 .panel.shut{padding-bottom:12px}
-.sk-lab{font:600 10.5px var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
 .sk-n{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);margin-left:auto}
 .sk-btn{font:600 12px var(--sans);border:1px solid var(--accent);background:var(--accent);
   color:#fff;border-radius:var(--r-ctl);padding:5px 11px;cursor:pointer}
@@ -573,10 +565,6 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 <div class="hero" id="hero"></div>
 
 <div id="sticky" class="on">
-  <span class="sk-lab">Jump to</span>
-  <nav class="jump" id="jump">
-    <a href="#s-overview">Overview</a><a href="#s-next">Do next</a><a href="#s-records">Records</a>
-  </nav>
   <span id="stickychips" class="chips"></span>
   <span class="sep"></span>
   <span class="sk-n" id="stickycount"></span>
@@ -831,15 +819,6 @@ function readHash(){
   });
 })();
 
-// Scroll spy on the jump rail, so the rail always says where you are.
-(function(){
-  const links=[...document.querySelectorAll('.jump a')];
-  const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
-  const mark=()=>{let i=0;secs.forEach((sec,n)=>{if(sec&&sec.getBoundingClientRect().top<=90)i=n;});
-    links.forEach((a,n)=>a.classList.toggle('here',n===i));};
-  addEventListener('scroll',mark,{passive:true});
-  addEventListener('hashchange',()=>setTimeout(mark,60)); mark();
-})();
 el('sk-go').addEventListener('click',()=>
   el('tb').scrollIntoView({behavior:'smooth',block:'center'}));
 

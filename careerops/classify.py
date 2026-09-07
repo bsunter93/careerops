@@ -255,7 +255,30 @@ class Classification:
 
 VENDOR_NAMES = re.compile(r"^(greenhouse|lever|workday|ashby|smartrecruiters|icims|jobvite|"
                           r"taleo|no[- ]?reply|do[- ]?not[- ]?reply|notifications?|careers?|"
-                          r"talent|recruiting|hr|team|jobs)$", re.I)
+                          r"talent|recruiting|hr|team|jobs|"
+                          # Workday signs its mail "AutoNotification workday", which is a
+                          # product name, not an employer. It reached the board as a
+                          # company called "AutoNotification workday" holding two real
+                          # Autodesk rejections.
+                          r"auto[- ]?notifications?(?:\s+workday)?|workday\s+auto[- ]?notifications?|"
+                          r"my[- ]?workday|talent\s+acquisition)$", re.I)
+
+
+def company_from_ats_address(sender: str) -> "Optional[str]":
+    """Workday hosts every employer on one domain and puts the tenant in the local part:
+    autodesk@myworkday.com is Autodesk. When the display name is the vendor's own, that
+    local part is the only place the employer appears."""
+    m = re.search(r"<?([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)>?\s*$", sender or "")
+    if not m:
+        return None
+    local, dom = m.group(1).lower(), m.group(2).lower()
+    if not (dom.endswith("myworkday.com") or dom.endswith("myworkdayjobs.com")):
+        return None
+    local = re.sub(r"[._-]*(careers?|jobs|recruiting|talent|hr|noreply|no-reply|notifications?)[._-]*",
+                   "", local)
+    if len(local) < 3 or local in ("info", "mail", "auto", "admin", "system"):
+        return None
+    return local.replace(".", " ").replace("_", " ").title()
 
 
 def sender_name(sender: str) -> Optional[str]:
@@ -313,6 +336,23 @@ def _clean_company(s: Optional[str]) -> Optional[str]:
     if re.fullmatch(r"confidential|undisclosed|stealth", s or "", flags=re.I):
         return None          # aggregator placeholder, not a company
     return s or None
+
+
+def strip_company_suffix(title: Optional[str], company: Optional[str] = None) -> Optional[str]:
+    """Drop a trailing "at <Company>" from a role title.
+
+    "Senior Principal Program Manager, GTM PMO at Autodesk" is a role and a company in
+    one string. The company belongs in its own column, and leaving it on the title
+    splits one role into two rows the moment a message names it without the suffix.
+
+    Only a company we can actually name is stripped. A general "at <Capitalized Words>"
+    rule looks tempting and quietly eats real titles: "Analytics at Scale", "Trust at
+    Work", "Data at Rest" all end in something that parses as a company and is not one.
+    """
+    if not (title and company):
+        return title
+    m = re.search(r"\s+(?:at|@|with)\s+" + re.escape(company) + r"\s*$", title, re.I)
+    return title[:m.start()].strip() if m else title
 
 
 def _clean_role(s: Optional[str]) -> Optional[str]:
@@ -508,6 +548,12 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
             c.company = _clean_company(sn)
             best = max(best, 0.85)
             c.reasons.append("sender-display-name")
+    if not c.company:
+        ats = company_from_ats_address(sender)
+        if ats:
+            c.company = _clean_company(ats)
+            best = max(best, 0.80)
+            c.reasons.append("ats-tenant-address")
 
     if not c.role and body:
         r = role_from_body(body)
@@ -521,6 +567,7 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
     # A closing verdict resting on a weak fragment, inside a mail whose subject is a plain
     # acknowledgement, is the shape of Microsoft's confirmation email. Record it, but do
     # not let it close the row: the event stands as evidence and goes to review instead.
+    c.role = strip_company_suffix(c.role, c.company)
     c.verdict_strength = _verdict_strength(c.event_type, subject, body or "")
     if (c.event_type in CLOSING and c.verdict_strength < WEAK_VERDICT
             and ACK_SUBJECT.search(subject)):
