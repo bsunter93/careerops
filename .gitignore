@@ -8,6 +8,17 @@ profile.md
 resume/master.json
 resume/.variant_*.json
 dashboard.html
+
+# A backup suffix defeats every pattern above: config.json is ignored,
+# config.json.bak is not. Four such files reached the public repo this way,
+# including a 3MB copy of the whole database. Match the suffixes, not just
+# the names.
+*.bak
+*.bak-*
+*.backup
+*.orig
+*.old
+*~
 *.docx
 *.pdf
 careerops.db

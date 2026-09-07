@@ -339,7 +339,7 @@ class TestConditionalOutcomes(unittest.TestCase):
         c = classify(
             "Thank you for your application!",
             "no-reply@email.careers.microsoft.com",
-            "Hi Benjamin, Thank you for taking the time to submit your application for "
+            "Hi there, Thank you for taking the time to submit your application for "
             "Intelligent Optimization Lead, Continuous Improvement. If you see the job "
             "moved to an inactive state, that means the position is either no longer "
             "open, you withdrew from consideration, or you were not selected for the "
@@ -352,7 +352,7 @@ class TestConditionalOutcomes(unittest.TestCase):
         # verdict resting on it is a fragment, so verdict strength is not. Before the
         # split, the second number did not exist and the first one spoke for both.
         ms = classify("Thank you for your application!", "no-reply@careers.microsoft.com",
-                      "Thanks for applying to Senior Capacity Program Manager at Microsoft. "
+                      "Thanks for applying to Senior Capacity Program Manager at Contoso. "
                       "Roles you are not selected for stay visible in the Action Center.")
         self.assertGreater(ms.confidence, 0.5)
         self.assertLess(ms.verdict_strength, 0.5)
