@@ -443,6 +443,13 @@ square track.
 - Claims must survive a follow-up question. Prefer "1.56 to 0.46 FTE per 100 cases"
   over "cut overhead 70%".
 
+## Refresh order
+
+`refresh` chains the pipeline and the order is load-bearing: **sync, resolve, discover,
+fit, dashboard.** Sync first so new acknowledgements attach and statuses settle before
+anything reads them; resolve next so duplicates fold before discover adds more; discover
+and fit before the dashboard, which is a pure projection and must run last.
+
 ## Commands
 
 ```

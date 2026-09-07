@@ -99,6 +99,7 @@ python3 -m careerops.cli resume 51 --verify   # tailored .docx, page-checked in 
 python3 -m careerops.cli apply 51             # record that you submitted it
 python3 -m careerops.cli sync --since 1y      # pull and classify Gmail
 python3 -m careerops.cli resolve              # merge duplicates, drain the review queue
+python3 -m careerops.cli refresh --open      # sync, resolve, discover, score, render
 python3 -m careerops.cli dashboard --open
 python3 -m careerops.cli demo --open          # synthetic data, separate database
 ```

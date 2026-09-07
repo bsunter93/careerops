@@ -335,6 +335,48 @@ def cmd_apply(a):
     print("  it will drop off Do next; the acknowledgement email will attach to this row")
 
 
+def cmd_refresh(a):
+    """One command for 'I applied to things, bring everything up to date'.
+
+    Order matters: sync first so new acknowledgements attach and statuses settle, then
+    resolve to fold duplicates, then discover for new postings, then score, then render.
+    """
+    import io, contextlib, time
+    steps = [
+        ("reading Gmail",        lambda: cmd_sync(_ns(a, since=a.since, max=400, refetch=False))),
+        ("resolving duplicates", lambda: cmd_resolve(_ns(a, limit=400, clean_only=False))),
+        ("scanning job boards",  lambda: cmd_discover(_ns(a))),
+        ("scoring new roles",    lambda: cmd_fit(_ns(a, limit=a.score, rescore=False))),
+        ("rendering dashboard",  lambda: cmd_dashboard(_ns(a, out=None, open=a.open, artifact=False))),
+    ]
+    t0 = time.time()
+    for label, fn in steps:
+        print(f"  {label} ...", end="", flush=True)
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                fn()
+            out = " ".join(buf.getvalue().split())[:96]
+            print(f" done  {out}")
+        except Exception as e:
+            print(f" FAILED: {type(e).__name__}: {e}")
+    print(f"\n  {time.time() - t0:.0f}s total")
+    conn = db.connect(a.db)
+    n = conn.execute("""SELECT COUNT(*) n FROM applications a JOIN roles r ON r.id = a.role_id
+                        WHERE a.status = 'prospect' AND a.fit_score >= 70
+                          AND r.posted_at IS NOT NULL
+                          AND julianday('now') - julianday(r.posted_at) <= 7""").fetchone()["n"]
+    print(f"  {n} prospect{'' if n == 1 else 's'} scoring 70+ posted in the last week")
+
+
+def _ns(base, **kw):
+    """Build an args namespace for another command, inheriting --db."""
+    import argparse
+    d = {"db": getattr(base, "db", None)}
+    d.update(kw)
+    return argparse.Namespace(**d)
+
+
 def cmd_dashboard(a):
     from .dashboard import write
     import subprocess, pathlib
@@ -441,6 +483,9 @@ def main(argv=None):
     ap.add_argument("--note")
     ap.add_argument("--force", action="store_true")
     ap.set_defaults(fn=cmd_apply)
+    rf = sub.add_parser("refresh", help="sync, resolve, discover, score, render")
+    rf.add_argument("--since", default="30d"); rf.add_argument("--score", type=int, default=25)
+    rf.add_argument("--open", action="store_true"); rf.set_defaults(fn=cmd_refresh)
     dm = sub.add_parser("demo"); dm.add_argument("--out"); dm.add_argument("--open", action="store_true")
     dm.add_argument("--artifact", action="store_true"); dm.set_defaults(fn=cmd_demo)
     dh = sub.add_parser("dashboard"); dh.add_argument("--out"); dh.add_argument("--open", action="store_true")
