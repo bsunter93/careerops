@@ -53,7 +53,20 @@ def connect(path: Optional[str] = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path or DEFAULT_DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns the schema has grown. schema.sql is CREATE TABLE IF NOT EXISTS, so it
+    never reaches a database that already exists."""
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+    except sqlite3.DatabaseError:
+        return
+    if cols and "held" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN held INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
 
 
 def init(conn: sqlite3.Connection) -> None:
@@ -127,7 +140,7 @@ def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = No
 
 def add_event(conn, application_id, occurred_at, type_, source, *,
               confidence=1.0, external_id=None, subject=None, sender=None, raw=None,
-              body=None, thread_id=None) -> Optional[int]:
+              body=None, thread_id=None, held=False) -> Optional[int]:
     """Idempotent on external_id. Returns event id, or None if already ingested."""
     if external_id:
         row = conn.execute("SELECT id FROM events WHERE external_id = ?", (external_id,)).fetchone()
@@ -135,10 +148,10 @@ def add_event(conn, application_id, occurred_at, type_, source, *,
             return None
     cur = conn.execute(
         """INSERT INTO events (application_id, occurred_at, type, confidence, source,
-                               external_id, subject, sender, raw, body, thread_id)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                               external_id, subject, sender, raw, body, thread_id, held)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (application_id, occurred_at, type_, confidence, source, external_id, subject, sender,
-         raw, body, thread_id),
+         raw, body, thread_id, 1 if held else 0),
     )
     return cur.lastrowid
 
@@ -150,7 +163,9 @@ def queue_review(conn, event_id: int, reason: str) -> None:
 def recompute_status(conn, application_id: int) -> str:
     """Status is derived from the event log, never set by hand."""
     rows = conn.execute(
-        "SELECT type, occurred_at FROM events WHERE application_id = ? AND type != 'noise' ORDER BY occurred_at",
+        # A held event is evidence on the record, not a verdict: it must not move status.
+        "SELECT type, occurred_at FROM events WHERE application_id = ? AND type != 'noise' "
+        "AND held = 0 ORDER BY occurred_at",
         (application_id,),
     ).fetchall()
     cur = conn.execute("SELECT status FROM applications WHERE id = ?", (application_id,)).fetchone()

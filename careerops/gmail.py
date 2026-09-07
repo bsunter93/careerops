@@ -232,10 +232,15 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
 
             eid = db.add_event(conn, app_id, iso, c.event_type, "gmail", confidence=c.confidence,
                                external_id=ext, subject=subject, sender=sender,
-                               raw="; ".join(c.reasons), body=body[:2000], thread_id=tid)
+                               raw="; ".join(c.reasons), body=body[:2000], thread_id=tid,
+                               held=c.held)
             if eid:
                 stats["new"] += 1
-                if c.needs_review:
+                if c.held:
+                    db.queue_review(conn, eid, c.held_reason)
+                    stats["held"] = stats.get("held", 0) + 1
+                    stats["review"] += 1
+                elif c.needs_review:
                     db.queue_review(conn, eid, f"conf={c.confidence} company={c.company!r} role={c.role!r}")
                     stats["review"] += 1
             if stats["seen"] % 25 == 0:

@@ -54,8 +54,9 @@ CREATE TABLE IF NOT EXISTS events (
   sender         TEXT,
   raw            TEXT,
   body           TEXT,
-  thread_id      TEXT              -- Gmail threadId: the only reliable way to know
+  thread_id      TEXT,             -- Gmail threadId: the only reliable way to know
                                    -- two messages concern the same conversation
+  held           INTEGER NOT NULL DEFAULT 0  -- recorded as evidence, withheld from status
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (

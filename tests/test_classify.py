@@ -1,6 +1,7 @@
 import sys, pathlib, unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from careerops.classify import classify, _clean_role, _clean_company
+from careerops import db
 
 class TestClassify(unittest.TestCase):
     def test_noise_is_not_an_application(self):
@@ -344,6 +345,63 @@ class TestConditionalOutcomes(unittest.TestCase):
             "open, you withdrew from consideration, or you were not selected for the "
             "role.")
         self.assertEqual(c.event_type, "ack")
+
+    def test_verdict_strength_is_independent_of_identity_confidence(self):
+        """The two scores were conflated; the review gate read the wrong one."""
+        # Microsoft's ack names its role cleanly, so identity confidence is high. The
+        # verdict resting on it is a fragment, so verdict strength is not. Before the
+        # split, the second number did not exist and the first one spoke for both.
+        ms = classify("Thank you for your application!", "no-reply@careers.microsoft.com",
+                      "Thanks for applying to Senior Capacity Program Manager at Microsoft. "
+                      "Roles you are not selected for stay visible in the Action Center.")
+        self.assertGreater(ms.confidence, 0.5)
+        self.assertLess(ms.verdict_strength, 0.5)
+
+        # and the converse: a solid verdict is not dragged down by a vague subject
+        adobe = classify("An update", "no-reply@myworkday.com",
+                         "Unfortunately, we have decided not to move forward.")
+        self.assertEqual(adobe.event_type, "rejection")
+        self.assertGreaterEqual(adobe.verdict_strength, 0.9)
+        self.assertFalse(adobe.held)
+
+    def test_proceeding_with_others_is_a_strong_rejection(self):
+        """"decided to proceed with other candidates" negates nothing, so the negated
+        patterns all miss it. It is still unambiguous."""
+        c = classify("Thank you for Applying to Blue Shield of California",
+                     "no-reply@oracle.com",
+                     "After a careful review of your application, we have decided to "
+                     "proceed with other candidates whose background is more aligned.")
+        self.assertEqual(c.event_type, "rejection")
+        self.assertGreaterEqual(c.verdict_strength, 0.9)
+        self.assertFalse(c.held)
+
+    def test_weak_verdict_under_ack_subject_is_held(self):
+        c = classify("Thank you for your application!", "no-reply@careers.microsoft.com",
+                     "Thanks for applying. Roles you are not selected for stay visible.")
+        self.assertEqual(c.event_type, "rejection")   # the reading is recorded honestly
+        self.assertTrue(c.held)                       # but it does not get to close a row
+        self.assertTrue(c.needs_review)
+
+    def test_strong_verdict_under_ack_subject_still_closes(self):
+        c = classify("Thank you for applying to Rippling", "no-reply@ashbyhq.com",
+                     "Unfortunately we have decided not to move forward with your "
+                     "application at this time.")
+        self.assertEqual(c.event_type, "rejection")
+        self.assertFalse(c.held)
+
+    def test_held_event_does_not_move_status(self):
+        conn = db.connect(":memory:"); db.init(conn)
+        cid = db.get_or_create_company(conn, "Microsoft")
+        rid = db.get_or_create_role(conn, cid, "Capacity Program Manager")
+        aid = db.get_or_create_application(conn, rid, submitted_at="2026-09-01T00:00:00",
+                                           is_ack=True, channel="gmail")
+        db.add_event(conn, aid, "2026-09-01T00:00:00", "ack", "gmail", external_id="a1")
+        db.add_event(conn, aid, "2026-09-02T00:00:00", "rejection", "gmail",
+                     external_id="a2", held=True)
+        self.assertEqual(db.recompute_status(conn, aid), "acked")
+        # the same event, trusted, does close it
+        conn.execute("UPDATE events SET held = 0 WHERE external_id = 'a2'")
+        self.assertEqual(db.recompute_status(conn, aid), "rejected")
 
     def test_declarative_rejections_still_land(self):
         for subj, body in [

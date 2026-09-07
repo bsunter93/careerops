@@ -96,24 +96,40 @@ ACK_SUBJECT = re.compile(
     r"application received|thank you for your interest|we received your appl)", re.I)
 
 # Order matters: strongest signal wins.
+# Rejection language splits by whether the phrase carries the verdict on its own.
+#
+# STRONG phrases are self-contained: no surrounding sentence turns "we regret to inform"
+# into anything but a decline. WEAK phrases only mean rejection in context. They appear
+# verbatim inside ordinary acknowledgements describing policy or a hypothetical future
+# ("if the job goes inactive, you were not selected"; "we keep resumes on file"), so a
+# weak phrase alone is evidence, not a verdict.
+REJECT_STRONG = [
+    # Soft rejections evade every hard pattern: no "unfortunately", no "other candidates",
+    # just a polite decline. Left unmatched they fall through to the ack rule and sit in
+    # the pipeline as live applications forever.
+    r"\bwe (?:do|did) not feel\b",
+    r"\bpursu(?:e|ing) other candidates\b",
+    r"\b(?:position|role|requisition|req) (?:has been |was |is )?(?:filled|closed|cancell?ed)\b",
+    r"\bwe have (?:filled|closed|cancell?ed)\b",
+    r"\bfilled (?:this|the) (?:position|role)\b",
+    r"\bnot (?:be )?(?:proceeding|moving forward)\b",
+    # "decided to proceed with other candidates" is as definitive as "decided not to",
+    # and matches none of the negated patterns above. One pattern covers the family:
+    # proceed/move forward/continue/pursue, in any inflection, with other/another.
+    r"\b(?:proceed|mov|continu|pursu)\w*\s+(?:forward\s+)?with\s+(?:other|another|a different)\b",
+    r"\bwill not be moving\b", r"\bdecided not to\b",
+    r"\bunfortunately\b", r"\bno longer under consideration\b",
+]
+REJECT_WEAK = [
+    r"\bkeep your (?:information|resume|r\u00e9sum\u00e9|details|profile|application) on file\b",
+    r"\bnot (?:a |the )?(?:best|right|strong(?:est)?) (?:match|fit)\b",
+    r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
+    r"\bother candidates\b", r"\bnot selected\b",
+]
+
 EVENT_PATTERNS = [
     ("offer",             [r"\bwe(?:'| a)re (?:pleased|excited) to (?:extend|offer)\b", r"\byour offer\b", r"\boffer letter\b"]),
-    ("rejection",         [
-                           # Soft rejections evade every hard pattern: no "unfortunately",
-                           # no "other candidates", just a polite decline. Left unmatched
-                           # they fall through to the ack rule and sit in the pipeline as
-                           # live applications forever.
-                           r"\bwe (?:do|did) not feel\b",
-                           r"\bkeep your (?:information|resume|r\u00e9sum\u00e9|details|profile|application) on file\b",
-                           r"\bnot (?:a |the )?(?:best|right|strong(?:est)?) (?:match|fit)\b",
-                           r"\bpursu(?:e|ing) other candidates\b",
-                           r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
-                           r"\b(?:position|role|requisition|req) (?:has been |was |is )?(?:filled|closed|cancell?ed)\b",
-                           r"\bwe have (?:filled|closed|cancell?ed)\b",
-                           r"\bfilled (?:this|the) (?:position|role)\b",
-                           r"\bnot (?:be )?(?:proceeding|moving forward)\b", r"\bmove forward with other\b",
-                           r"\bother candidates\b", r"\bwill not be moving\b", r"\bdecided not to\b",
-                           r"\bunfortunately\b", r"\bno longer under consideration\b", r"\bnot selected\b"]),
+    ("rejection",         REJECT_STRONG + REJECT_WEAK),
     ("interview_invite",  [r"\binvitation to interview\b", r"\binterview invitation\b",
                            r"\bschedule (?:a|your) (?:call|interview|chat)\b",
                            r"\binterview (?:update|availability|request)\b"]),
@@ -225,13 +241,16 @@ class Classification:
     role: Optional[str] = None
     event_type: str = "unresolved"
     trigger: Optional[str] = None      # literal phrase that fired the classification
-    confidence: float = 0.0
+    confidence: float = 0.0            # how sure we are of company + role, NOT of the verdict
+    verdict_strength: float = 1.0      # how sure we are of event_type, on its own evidence
+    held: bool = False                 # verdict recorded but withheld from status derivation
+    held_reason: Optional[str] = None
     reasons: list = field(default_factory=list)
 
     @property
     def needs_review(self) -> bool:
         return self.event_type != "noise" and (
-            self.confidence < THRESHOLD or not self.company or not self.role)
+            self.held or self.confidence < THRESHOLD or not self.company or not self.role)
 
 
 VENDOR_NAMES = re.compile(r"^(greenhouse|lever|workday|ashby|smartrecruiters|icims|jobvite|"
@@ -344,6 +363,31 @@ def _strip_conditionals(text: str) -> str:
     a live opportunity.
     """
     return CONDITIONAL.sub(" ", text or "")
+
+
+# Verdicts that close an application. Their failure is asymmetric: a false close deletes a
+# live opportunity and hides it from Do next, while a missed one leaves a stale row that
+# costs a glance. They are the only verdicts worth withholding.
+CLOSING = ("rejection", "offer")
+WEAK_VERDICT = 0.5
+
+
+def _verdict_strength(etype: str, subject: str, body: str) -> float:
+    """How far the event type is supported by its own evidence.
+
+    This is deliberately not `confidence`, which scores company and role extraction. The
+    two were conflated, and the review gate read the wrong one: Adobe's correct rejection
+    scored 0.0 because its subject named no role, while Microsoft's false rejection scored
+    0.55 because its subject named one cleanly. A verdict now answers for itself.
+    """
+    if etype not in CLOSING:
+        return 1.0                      # promotions and acks are cheap to get wrong
+    if etype == "offer":
+        return 0.9                      # every offer pattern is self-contained
+    text = _strip_conditionals(f"{subject} {body}".lower())
+    if any(re.search(p, text) for p in REJECT_STRONG):
+        return 0.9
+    return 0.4                          # a weak fragment, and nothing else
 
 
 def _event_type(subject: str, body: str = "") -> "tuple":
@@ -473,4 +517,15 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
             best = max(best, 0.80 if c.company else 0.55)
 
     c.confidence = round(min(best, 0.99), 2) if c.event_type != "unresolved" else round(best * 0.5, 2)
+
+    # A closing verdict resting on a weak fragment, inside a mail whose subject is a plain
+    # acknowledgement, is the shape of Microsoft's confirmation email. Record it, but do
+    # not let it close the row: the event stands as evidence and goes to review instead.
+    c.verdict_strength = _verdict_strength(c.event_type, subject, body or "")
+    if (c.event_type in CLOSING and c.verdict_strength < WEAK_VERDICT
+            and ACK_SUBJECT.search(subject)):
+        c.held = True
+        c.held_reason = ("closing verdict on weak evidence under an acknowledgement subject"
+                         + (f': "{c.trigger}"' if c.trigger else ""))
+        c.reasons.append("held:weak-verdict-under-ack-subject")
     return c
