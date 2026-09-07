@@ -136,6 +136,30 @@ def get_or_create_role(conn, company_id: int, title: str, **kw) -> int:
 RESUBMIT_HOURS = 24
 
 
+ACK_WINDOW_DAYS = 14
+
+
+def awaiting_ack(conn, company_id: int, occurred_at: str) -> Optional[int]:
+    """The role at this company whose submission this acknowledgement belongs to.
+
+    Only answers when there is exactly one candidate. Ambiguity here is worse than an
+    "Unknown role" row: attaching an acknowledgement to the wrong submission marks the
+    wrong one live and leaves the real one looking ignored.
+    """
+    rows = conn.execute(
+        """SELECT DISTINCT r.id FROM roles r
+             JOIN applications a ON a.role_id = r.id
+            WHERE r.company_id = ?
+              AND a.status IN ('applied', 'prospect')
+              AND COALESCE(a.submitted_at, a.applied_on) IS NOT NULL
+              AND julianday(?) - julianday(COALESCE(a.submitted_at, a.applied_on))
+                  BETWEEN -1 AND ?
+              AND NOT EXISTS (SELECT 1 FROM events e
+                               WHERE e.application_id = a.id AND e.type = 'ack')""",
+        (company_id, occurred_at, ACK_WINDOW_DAYS)).fetchall()
+    return rows[0]["id"] if len(rows) == 1 else None
+
+
 def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = None,
                               submitted_at: Optional[str] = None, is_ack: bool = False, **kw) -> int:
     """A submission is the unit. Re-applying to the same role creates a new row,

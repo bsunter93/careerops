@@ -111,8 +111,28 @@ def extract_comp(jd: str):
     return (min(vals), max(vals))
 
 
+def _loc_hit(loc_low: str, patterns: Iterable[str]) -> bool:
+    """Location patterns match on word boundaries, not raw substrings.
+
+    The watchlist carries "us" as a catch-all for nationwide postings, and a plain
+    substring test finds it inside Austin, Houston, Columbus and Tuscaloosa, quietly
+    admitting every role in those cities as if they were home market. Patterns that
+    start or end with punctuation, like ", ca", keep their literal form.
+    """
+    for p in patterns:
+        p = (p or "").lower().strip()
+        if not p:
+            continue
+        left = r"\b" if p[0].isalnum() else ""
+        right = r"\b" if p[-1].isalnum() else ""
+        if re.search(left + re.escape(p) + right, loc_low):
+            return True
+    return False
+
+
 def matches(job: dict, titles: Iterable[str], locations: Iterable[str],
-            excludes: Iterable[str] = ()) -> bool:
+            excludes: Iterable[str] = (), relocation: "Optional[dict]" = None,
+            comp_max: "Optional[int]" = None) -> bool:
     t = (job.get("title") or "").lower()
     if any(x.lower() in t for x in excludes):
         return False
@@ -121,11 +141,38 @@ def matches(job: dict, titles: Iterable[str], locations: Iterable[str],
     if not locations:
         return True
     loc = (job.get("location") or "").lower()
-    return any(l.lower() in loc for l in locations)
+    if _loc_hit(loc, locations):
+        return True
+    return _worth_relocating(t, loc, relocation, comp_max)
+
+
+def _worth_relocating(title_low: str, loc_low: str, rules: "Optional[dict]",
+                      comp_max: "Optional[int]") -> bool:
+    """A role outside the home market has to be worth moving a family for.
+
+    All three conditions, not any of them: the right coast, a senior title, and pay far
+    enough above the home floor to cover the move. The comp floor is deliberately much
+    higher than the local one, because the comparison is not Denver salary against coast
+    salary, it is Denver life against coast cost of living.
+
+    Requiring a published number costs almost nothing here: California and Washington
+    both require pay ranges in job postings, so the roles this rule targets almost always
+    state one. A posting with no range is not treated as qualifying, since an unverified
+    guess is exactly the wrong thing to relocate on.
+    """
+    if not rules:
+        return False
+    if not _loc_hit(loc_low, rules.get("locations", ())):
+        return False
+    if not any(k.lower() in title_low for k in rules.get("seniority", ())):
+        return False
+    floor = rules.get("comp_floor") or 0
+    return bool(comp_max and comp_max >= floor)
 
 
 def discover(conn, watchlist: list, titles: list, locations: list,
-             excludes: list = (), comp_floor: int = 0) -> dict:
+             excludes: list = (), comp_floor: int = 0,
+             relocation: "Optional[dict]" = None) -> dict:
     """watchlist: [{"company": "Databricks", "board": "greenhouse", "slug": "databricks"}, ...]"""
     stats = {"boards": 0, "fetched": 0, "matched": 0, "new": 0,
              "excluded_title": 0, "below_comp": 0, "failed": []}
@@ -148,10 +195,12 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             if any(x.lower() in t for x in excludes):
                 stats["excluded_title"] += 1
                 continue
-            if not matches(j, titles, locations, excludes):
-                continue
+            # Comp is parsed before matching now: the relocation rule needs the number
+            # to decide whether a role outside the home market is worth moving for.
             jd = j.get("jd_text") or ""
             cmin, cmax = extract_comp(jd)
+            if not matches(j, titles, locations, excludes, relocation, cmax):
+                continue
             # Only filter when comp was actually parsed; unknown never disqualifies.
             if comp_floor and cmax and cmax < comp_floor:
                 stats["below_comp"] += 1

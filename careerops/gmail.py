@@ -222,7 +222,17 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
                 app_id = prior["application_id"]          # same conversation, same application
             elif c.company and creates_application(c):
                 cid = db.get_or_create_company(conn, c.company)
-                rid = db.get_or_create_role(conn, cid, c.role or "Unknown role", source="gmail")
+                # An acknowledgement often names no role: "Thank you for applying to
+                # InStride Health". Creating a role called "Unknown role" opens a second
+                # application beside the submission it is acknowledging, leaving one
+                # application reading "applied" and a phantom reading "acked". When the
+                # company has exactly one recent submission still waiting on its ack,
+                # that is what this mail is about.
+                rid = None
+                if not c.role and c.event_type == "ack":
+                    rid = db.awaiting_ack(conn, cid, iso)
+                rid = rid or db.get_or_create_role(conn, cid, c.role or "Unknown role",
+                                                   source="gmail")
                 existed = conn.execute("SELECT 1 FROM applications WHERE role_id=?", (rid,)).fetchone()
                 app_id = db.get_or_create_application(conn, rid, applied_on=iso[:10],
                                                       submitted_at=iso, is_ack=(c.event_type == "ack"),

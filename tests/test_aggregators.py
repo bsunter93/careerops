@@ -314,3 +314,106 @@ class TestRoleTitleKeepsItsOwnWords(unittest.TestCase):
                   "Director, Data at Rest"):
             self.assertEqual(f(t, "Autodesk"), t)
             self.assertEqual(f(t, None), t)
+
+
+class TestRelocation(unittest.TestCase):
+    """Outside the home market, all three conditions must hold: right coast, senior
+    title, and pay far enough above the local floor to cover moving a family."""
+
+    T = ["business operations", "revenue operations", "program manager"]
+    L = ["denver", "colorado", "remote", "united states", "us"]
+    R = {"locations": ["california", "washington", "oregon", ", ca", "san francisco", "seattle"],
+         "comp_floor": 250000,
+         "seniority": ["director", "head of", "principal", "staff", "senior manager"]}
+
+    def _m(self, title, loc, comp):
+        from careerops.discover import matches
+        return matches({"title": title, "location": loc}, self.T, self.L, (), self.R, comp)
+
+    def test_senior_west_coast_role_above_the_bar_passes(self):
+        self.assertTrue(self._m("Director, Business Operations", "San Francisco, CA", 310000))
+
+    def test_pay_below_the_relocation_bar_is_not_worth_moving_for(self):
+        self.assertFalse(self._m("Director, Business Operations", "San Francisco, CA", 190000))
+
+    def test_an_unpublished_range_does_not_qualify(self):
+        """CA and WA require pay ranges in postings, so a missing one is a real signal.
+        Relocating on an unverified guess is exactly the wrong trade."""
+        self.assertFalse(self._m("Director, Business Operations", "San Francisco, CA", None))
+
+    def test_a_non_senior_title_does_not_qualify_however_well_paid(self):
+        self.assertFalse(self._m("Business Operations Manager", "San Francisco, CA", 310000))
+
+    def test_the_wrong_coast_never_qualifies(self):
+        self.assertFalse(self._m("Director, Business Operations", "Austin, Texas", 310000))
+        self.assertFalse(self._m("Director, Business Operations", "New York, NY", 400000))
+
+    def test_home_market_and_remote_are_unaffected(self):
+        self.assertTrue(self._m("Business Operations Manager", "Denver, CO", 180000))
+        self.assertTrue(self._m("Business Operations Manager", "Remote, US", None))
+
+
+class TestLocationWordBoundaries(unittest.TestCase):
+    def test_us_does_not_match_inside_a_city_name(self):
+        """"us" is the catch-all for nationwide postings. As a raw substring it hides
+        inside Austin, Houston, Columbus and Tuscaloosa, admitting those as home market."""
+        from careerops.discover import _loc_hit
+        for city in ("austin, texas", "houston, tx", "columbus, oh", "tuscaloosa, al"):
+            self.assertFalse(_loc_hit(city, ["us", "remote", "denver"]), city)
+
+    def test_real_nationwide_and_home_postings_still_match(self):
+        from careerops.discover import _loc_hit
+        for loc in ("united states", "remote, us", "us - remote", "denver, co"):
+            self.assertTrue(_loc_hit(loc, ["us", "united states", "remote", "denver"]), loc)
+
+    def test_punctuated_patterns_keep_their_literal_form(self):
+        from careerops.discover import _loc_hit
+        self.assertTrue(_loc_hit("san mateo, ca", [", ca"]))
+        self.assertFalse(_loc_hit("chicago, il", [", ca"]))
+
+
+class TestAckWithNoRoleNamed(unittest.TestCase):
+    """"Thank you for applying to InStride Health" names no role. Creating an "Unknown
+    role" opens a phantom application beside the submission it acknowledges, leaving one
+    row reading applied and another acked for the same thing."""
+
+    def _co(self):
+        from careerops import db
+        conn = db.connect(":memory:"); db.init(conn)
+        return db, conn, db.get_or_create_company(conn, "InStride Health")
+
+    def test_the_single_pending_submission_is_found(self):
+        db, conn, cid = self._co()
+        rid = db.get_or_create_role(conn, cid, "Chief of Staff")
+        aid = db.get_or_create_application(conn, rid, applied_on="2026-09-07",
+                                           submitted_at="2026-09-07T12:00:00")
+        conn.execute("UPDATE applications SET status='applied' WHERE id=?", (aid,))
+        self.assertEqual(db.awaiting_ack(conn, cid, "2026-09-07T17:36:00"), rid)
+
+    def test_two_pending_submissions_are_ambiguous_so_it_declines(self):
+        """Attaching to the wrong one is worse than an Unknown row: it marks the wrong
+        submission live and leaves the real one looking ignored."""
+        db, conn, cid = self._co()
+        for t in ("Chief of Staff", "Head of Operations"):
+            rid = db.get_or_create_role(conn, cid, t)
+            aid = db.get_or_create_application(conn, rid, applied_on="2026-09-07",
+                                               submitted_at="2026-09-07T12:00:00")
+            conn.execute("UPDATE applications SET status='applied' WHERE id=?", (aid,))
+        self.assertIsNone(db.awaiting_ack(conn, cid, "2026-09-07T17:36:00"))
+
+    def test_a_submission_that_already_has_its_ack_is_not_a_candidate(self):
+        db, conn, cid = self._co()
+        rid = db.get_or_create_role(conn, cid, "Chief of Staff")
+        aid = db.get_or_create_application(conn, rid, applied_on="2026-09-07",
+                                           submitted_at="2026-09-07T12:00:00")
+        conn.execute("UPDATE applications SET status='applied' WHERE id=?", (aid,))
+        db.add_event(conn, aid, "2026-09-07T13:00:00", "ack", "gmail", external_id="x1")
+        self.assertIsNone(db.awaiting_ack(conn, cid, "2026-09-07T17:36:00"))
+
+    def test_an_old_submission_is_out_of_the_window(self):
+        db, conn, cid = self._co()
+        rid = db.get_or_create_role(conn, cid, "Chief of Staff")
+        aid = db.get_or_create_application(conn, rid, applied_on="2026-01-02",
+                                           submitted_at="2026-01-02T12:00:00")
+        conn.execute("UPDATE applications SET status='applied' WHERE id=?", (aid,))
+        self.assertIsNone(db.awaiting_ack(conn, cid, "2026-09-07T17:36:00"))
