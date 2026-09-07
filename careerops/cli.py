@@ -206,7 +206,12 @@ def cmd_discover(a):
     s = discover(conn, cfg["watchlist"], cfg["titles"], cfg["locations"],
                  cfg.get("exclude_titles", []), cfg.get("comp_floor", 0))
     failed = s.pop("failed", [])
+    unscored, unscorable = s.pop("unscored", 0), s.pop("unscorable", 0)
     print("  ".join(f"{k}={v}" for k, v in s.items()))
+    if unscored:
+        print(f"unscored={unscored}  (invisible until scored: run `careerops fit --limit {unscored}`)")
+    if unscorable:
+        print(f"unscorable={unscorable}  (no usable JD text; these will never surface)")
     if failed:
         print("unreachable: " + ", ".join(failed))
 

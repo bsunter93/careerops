@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS roles (
   jd_text       TEXT,
   jd_hash       TEXT,
   discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+  posted_at     TEXT,              -- when the employer published it, not when we saw it
   UNIQUE(company_id, title)
 );
 

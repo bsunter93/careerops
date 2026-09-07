@@ -67,6 +67,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if cols and "held" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN held INTEGER NOT NULL DEFAULT 0")
         conn.commit()
+    try:
+        rcols = {r[1] for r in conn.execute("PRAGMA table_info(roles)")}
+    except sqlite3.DatabaseError:
+        return
+    if rcols and "posted_at" not in rcols:
+        conn.execute("ALTER TABLE roles ADD COLUMN posted_at TEXT")
+        conn.commit()
 
 
 def init(conn: sqlite3.Connection) -> None:

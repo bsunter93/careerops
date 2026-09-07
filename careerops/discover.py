@@ -23,7 +23,10 @@ def _get(url: str) -> Optional[dict]:
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             return json.loads(r.read().decode("utf-8", "replace"))
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+    except (OSError, json.JSONDecodeError):
+        # OSError covers socket.timeout, URLError and HTTPError. On Python 3.9
+        # socket.timeout is not TimeoutError, so naming TimeoutError let one slow
+        # board raise through and abort the sweep across all 87 of them.
         return None
 
 
@@ -135,7 +138,13 @@ def discover(conn, watchlist: list, titles: list, locations: list,
         stats["fetched"] += len(jobs)
         cid = db.get_or_create_company(conn, w["company"])
         for j in jobs:
-            t = (j.get("title") or "").lower()
+            # Normalize once. Ashby returns titles with a trailing space, and
+            # get_or_create_role strips before inserting, so the raw title never
+            # matched the stored one: the existence check below missed every time,
+            # "new" counted a row that was never inserted, and the update branch that
+            # refreshes jd_text and posted_at was skipped for the life of the role.
+            j["title"] = (j.get("title") or "").strip()
+            t = j["title"].lower()
             if any(x.lower() in t for x in excludes):
                 stats["excluded_title"] += 1
                 continue
@@ -164,4 +173,31 @@ def discover(conn, watchlist: list, titles: list, locations: list,
                                   comp_min=cmin, comp_max=cmax, posted_at=j.get("posted_at"))
             stats["new"] += 1
     conn.commit()
+    stats.update(scoring_backlog(conn))
     return stats
+
+
+def scoring_backlog(conn) -> dict:
+    """How many discovered roles are waiting on `fit`, and how many can never get it.
+
+    discover can add more roles than fit scores in a run, and an unscored role has no
+    application row at all, so it appears nowhere: not on the dashboard, not in Do next,
+    not in any count. Today's expansion left 31 roles in that state and the only reason
+    it surfaced was someone going to look. On the 07:30 job it would have been silent.
+
+    `unscored` mirrors score_pending's own predicate exactly, so it reads as the number
+    of roles the next `fit` run would pick up. `unscorable` is the quieter problem: a
+    posting whose JD never came through is permanently invisible, because fit skips it
+    every time and nothing else ever mentions it.
+    """
+    # Only roles that are still candidates for scoring. A role reached through Gmail
+    # carries no JD, and once it has been applied to its fit score is irrelevant, so
+    # counting those reported 319 permanently "unscorable" roles that needed nothing.
+    q = """SELECT COUNT(*) n FROM roles r LEFT JOIN applications a ON a.role_id = r.id
+           WHERE (a.id IS NULL OR (a.fit_score IS NULL AND a.status = 'prospect'))
+             AND %s"""
+    scorable = "r.jd_text IS NOT NULL AND LENGTH(r.jd_text) > 200"
+    return {
+        "unscored": conn.execute(q % scorable).fetchone()["n"],
+        "unscorable": conn.execute(q % f"NOT ({scorable})").fetchone()["n"],
+    }

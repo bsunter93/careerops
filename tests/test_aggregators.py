@@ -48,3 +48,94 @@ class TestFeedNormalization(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScoringBacklog(unittest.TestCase):
+    """discover must report roles that fit has not reached. An unscored role has no
+    application row, so it shows up in no count anywhere and stalls silently."""
+
+    def setUp(self):
+        from careerops import db
+        self.conn = db.connect(":memory:"); db.init(self.conn)
+        self.db = db
+        self.cid = db.get_or_create_company(self.conn, "Contoso")
+
+    def _role(self, title, jd):
+        return self.db.get_or_create_role(self.conn, self.cid, title, jd_text=jd)
+
+    def test_counts_roles_awaiting_fit(self):
+        from careerops.discover import scoring_backlog
+        self._role("Business Operations Manager", "x" * 500)
+        self._role("Strategy and Operations Lead", "y" * 500)
+        self.assertEqual(scoring_backlog(self.conn)["unscored"], 2)
+
+    def test_scored_roles_drop_out_of_the_backlog(self):
+        from careerops.discover import scoring_backlog
+        rid = self._role("Business Operations Manager", "x" * 500)
+        aid = self.db.get_or_create_application(self.conn, rid, channel="discovered")
+        self.conn.execute("UPDATE applications SET fit_score=80 WHERE id=?", (aid,))
+        self.assertEqual(scoring_backlog(self.conn)["unscored"], 0)
+
+    def test_applied_roles_are_neither_unscored_nor_unscorable(self):
+        """Roles reached through Gmail have no JD and need no score. Counting them
+        reported a 319-role backlog that no amount of scoring would ever clear."""
+        from careerops.discover import scoring_backlog
+        rid = self._role("Business Operations Manager", "")
+        aid = self.db.get_or_create_application(self.conn, rid, channel="gmail")
+        self.conn.execute("UPDATE applications SET status='acked' WHERE id=?", (aid,))
+        b = scoring_backlog(self.conn)
+        self.assertEqual((b["unscored"], b["unscorable"]), (0, 0))
+
+    def test_a_role_with_no_jd_is_unscorable_not_unscored(self):
+        """fit skips these every run, so counting them as pending would report a
+        backlog that never clears no matter how often fit is run."""
+        from careerops.discover import scoring_backlog
+        self._role("Chief of Staff", "too short")
+        b = scoring_backlog(self.conn)
+        self.assertEqual(b["unscored"], 0)
+        self.assertEqual(b["unscorable"], 1)
+
+    def test_backlog_matches_what_fit_would_actually_pick_up(self):
+        """The count is only useful if it mirrors score_pending's own predicate."""
+        from careerops.discover import scoring_backlog
+        self._role("Business Operations Manager", "x" * 500)
+        self._role("Revenue Operations Manager", "y" * 500)
+        self._role("Chief of Staff", "short")
+        rows = self.conn.execute("""
+            SELECT COUNT(*) n FROM roles r LEFT JOIN applications a ON a.role_id = r.id
+            WHERE r.jd_text IS NOT NULL AND LENGTH(r.jd_text) > 200
+              AND (a.id IS NULL OR a.fit_score IS NULL)""").fetchone()["n"]
+        self.assertEqual(scoring_backlog(self.conn)["unscored"], rows)
+
+
+class TestFetchIsFailureTolerant(unittest.TestCase):
+    def test_a_socket_timeout_does_not_abort_the_sweep(self):
+        """On Python 3.9 socket.timeout is not TimeoutError, so naming TimeoutError
+        in the handler let one slow board raise through and kill all 87."""
+        import socket
+        from unittest import mock
+        from careerops import discover as D
+        with mock.patch.object(D.urllib.request, "urlopen", side_effect=socket.timeout("timed out")):
+            self.assertIsNone(D._get("https://example.invalid/board"))
+            self.assertEqual(D.fetch("greenhouse", "anything"), [])
+
+
+class TestTitleNormalization(unittest.TestCase):
+    def test_a_trailing_space_does_not_create_a_phantom_new_role(self):
+        """Ashby titles arrive as "Product Designer ". get_or_create_role strips
+        before inserting, so an unstripped lookup misses forever: discover reports
+        it new on every run and never refreshes its JD or posting date."""
+        from careerops import db
+        from careerops.discover import discover
+        from unittest import mock
+        conn = db.connect(":memory:"); db.init(conn)
+        job = {"title": "Business Operations Manager ", "location": "Remote, US",
+               "url": "https://example.test/1", "jd_text": "x" * 500,
+               "external_id": "1", "posted_at": "2026-09-01T00:00:00"}
+        wl = [{"company": "Contoso", "board": "ashby", "slug": "contoso"}]
+        with mock.patch("careerops.discover.fetch", return_value=[dict(job)]):
+            first = discover(conn, wl, ["business operations"], ["remote"])
+            second = discover(conn, wl, ["business operations"], ["remote"])
+        self.assertEqual(first["new"], 1)
+        self.assertEqual(second["new"], 0, "same posting counted new twice")
+        self.assertEqual(conn.execute("SELECT COUNT(*) n FROM roles").fetchone()["n"], 1)
