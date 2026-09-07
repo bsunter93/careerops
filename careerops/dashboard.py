@@ -296,7 +296,12 @@ h2{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--mute
    margin:22px 0 0;padding-bottom:6px;border-bottom:1px solid var(--line);
    display:flex;align-items:center;gap:8px}
 h2 b{color:var(--accent);font-weight:600}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+/* Rows stretch so the two list panels match height; charts opt out with align-self,
+   because stretching a fixed-ratio chart just adds dead space under it. */
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:stretch}
+
+.panel.list{display:flex;flex-direction:column}
+.panel.list>div:last-of-type{flex:1;min-height:0}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:0;padding:12px 14px 12px}
 .panel h3{font-size:13px;font-weight:600;margin:0 0 2px}
@@ -353,7 +358,10 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
    path in Chrome 121+, which then ignores ::-webkit-scrollbar entirely. So the standard
    properties are deliberately NOT set here: the webkit pseudo-elements are what force a
    classic, always-visible bar that reserves its own gutter. */
-#actions{max-height:292px;overflow-y:scroll;margin-right:-4px}
+#actions{min-height:220px;overflow-y:scroll;overflow-x:hidden;margin-right:-4px}
+#c-recent::-webkit-scrollbar{width:10px;-webkit-appearance:none}
+#c-recent::-webkit-scrollbar-track{background:var(--grid)}
+#c-recent::-webkit-scrollbar-thumb{background:var(--faint);border:2px solid var(--panel)}
 #actions::-webkit-scrollbar{width:10px;-webkit-appearance:none}
 #actions::-webkit-scrollbar-track{background:var(--grid)}
 #actions::-webkit-scrollbar-thumb{background:var(--faint);border:2px solid var(--panel)}
@@ -500,10 +508,10 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 
 <section id="s-overview">
 <div class="grid">
-  <div class="panel"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Portal-recorded outcomes are excluded: they carry the date they were logged, not the date they happened. Click a row for the table.</div><div id="c-recent"></div></div>
-  <div class="panel dn" id="s-next"><h3>Do next</h3><div class="cap" id="dncap"></div><div id="actions"></div></div>
-  <div class="panel"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
-  <div class="panel"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Click any segment to filter.</div><div id="c-co"></div></div>
+  <div class="panel list"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Portal-recorded outcomes are excluded: their date is when they were logged. Click a row for the table.</div><div id="c-recent"></div></div>
+  <div class="panel list dn" id="s-next"><h3>Do next</h3><div class="cap" id="dncap"></div><div id="actions"></div></div>
+  <div class="panel chart"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
+  <div class="panel chart"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Click any segment to filter.</div><div id="c-co"></div></div>
 </div>
 </section>
 
@@ -778,7 +786,7 @@ document.getElementById('hero').addEventListener('keydown',e=>{
 
 // ---------- weekly: grouped bars, 2 series + legend ----------
 CHARTS.push(function(){
-  const d=D.weekly,W=cw('c-weekly'),H=150,pad={l:24,r:6,t:8,b:22};
+  const d=D.weekly,W=cw('c-weekly'),H=214,pad={l:26,r:6,t:10,b:26};
   const max=Math.max(...d.map(x=>Math.max(x.sub,x.rep)),1);
   const iw=(W-pad.l-pad.r)/d.length, bw=(iw-6)/2;
   document.getElementById('c-weekly').innerHTML=
@@ -958,6 +966,7 @@ document.getElementById('actions').addEventListener('keydown',e=>{
   const ago=d=>{const t=new Date(d.slice(0,10)+'T00:00:00');
     const n=Math.round((today-t)/864e5);
     return n<=0?'today':n===1?'1d':n+'d';};
+  host.style.overflowY='scroll'; host.style.overflowX='hidden'; host.style.marginRight='-4px';
   host.innerHTML=rows.map(r=>`<div class="rc hit" data-id="${r.app_id}"
       title="${esc(r.company)} \u2014 ${esc(r.role)}${r.source&&r.source!=='gmail'?` \u00b7 recorded from ${esc(r.source)}, so the date is when it was logged`:``}">
     <span class="rc-d">${esc(ago(r.occurred_at))}</span>

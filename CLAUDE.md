@@ -311,6 +311,12 @@ Stages are equal width with proportional bars underneath; proportional widths re
 and 9 as slivers next to 338. Each stage also states its own drop, which is where the
 story is: -95% from acknowledged to advanced.
 
+**Panels in a row are the same height, and earn it.** The grid stretches, so the two list
+panels match and both scroll inside whatever height the row settles on. A fixed-ratio
+chart cannot stretch without leaving dead space beneath it, so the fix is to give the
+shorter chart more drawing height rather than more padding: Weekly went from a 150 to a
+214 viewBox to meet By company's ten rows at 335px.
+
 **A chart that restates a hero card is not a chart.** Three were cut for this reason.
 Fit distribution reranked what Do next already ranks. The funnel said "6 of 336 advanced"
 next to a hero card reading "2%, 6 of 336" that filtered identically. Aging said "197
