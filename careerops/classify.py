@@ -312,11 +312,28 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
     return s
 
 
+CONDITIONAL = re.compile(
+    r"\b(?:if|should|unless|in the event|in case)\b[^.!?;]{0,120}", re.I)
+
+
+def _strip_conditionals(text: str) -> str:
+    """Remove hypothetical clauses before matching outcome language.
+
+    Standard acknowledgements carry "If you are not selected for this position, keep an
+    eye on our jobs page". Matching "not selected" there turns an ack into a rejection and
+    closes a live application, which is the most destructive misread available: it hides
+    the role from Do next and marks the thread dead.
+    """
+    return CONDITIONAL.sub(" ", text or "")
+
+
 def _event_type(subject: str, body: str = "") -> "tuple":
     """Return (type, literal matched text). Strong patterns may match subject or
     body; weak ones only the subject. A definitive ack subject blocks promotion."""
     subj_low = (subject or "").lower()
     both_low = f"{subject} {body}".lower()
+    # Outcome language is only trusted outside hypothetical clauses.
+    outcome_low = _strip_conditionals(both_low)
     ack_subject = bool(ACK_SUBJECT.search(subject or ""))
 
     for etype, pats in EVENT_PATTERNS:
@@ -326,6 +343,7 @@ def _event_type(subject: str, body: str = "") -> "tuple":
         # and inflated the advance rate.
         scope = (subj_low if (ack_subject and etype in ("interview_invite", "assessment",
                                                         "recruiter_outreach"))
+                 else outcome_low if etype in ("rejection", "offer")
                  else both_low)
         for p in pats:
             m = re.search(p, scope)

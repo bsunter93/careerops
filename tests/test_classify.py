@@ -307,3 +307,39 @@ class TestClosedRequisitions(unittest.TestCase):
         c = classify("Quick question about a role", "jane@acme.com",
                      "I came across your profile and would love to connect about an opening")
         self.assertEqual(c.event_type, "recruiter_outreach")
+
+
+class TestConditionalOutcomes(unittest.TestCase):
+    """Outcome language inside a hypothetical clause is not an outcome.
+
+    Standard acknowledgements say "If you are not selected for this position, keep an eye
+    on our jobs page". Matching "not selected" there turned two same-day acks into
+    rejections, closing a live Figma application and a Headway one submitted that morning.
+    Closing a live thread is the most destructive misread available: the role vanishes
+    from Do next and the record says it is dead.
+    """
+
+    def test_conditional_rejection_language_stays_an_ack(self):
+        for subj, body in [
+            ("Thank you for your application to Figma",
+             "We received your application for Business Operations. If you are not "
+             "selected for this position, keep an eye on our jobs page."),
+            ("Thank you for applying to Headway",
+             "We have received your application. If you are not selected for this "
+             "position, keep an eye on our careers page."),
+            ("Application received",
+             "Should you not be selected, we will keep your resume on file."),
+        ]:
+            self.assertEqual(classify(subj, "no-reply@ashbyhq.com", body).event_type,
+                             "ack", subj)
+
+    def test_declarative_rejections_still_land(self):
+        for subj, body in [
+            ("Update on your application",
+             "After careful consideration we have decided not to move forward."),
+            ("Your application", "Unfortunately you were not selected for this role."),
+            ("Application update",
+             "We have moved forward with other candidates for this position."),
+        ]:
+            self.assertEqual(classify(subj, "no-reply@greenhouse-mail.io", body).event_type,
+                             "rejection", subj)

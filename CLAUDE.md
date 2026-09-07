@@ -106,6 +106,13 @@ acknowledgement promoted five of them to `in_process`. That inflated advanced fr
 16 and the advance rate from 3% to 5%. Any event type that outranks `acked` has to be
 inside the guard; the family of bug repeats every time a new one is added.
 
+**Outcome language inside a hypothetical clause is not an outcome.** Standard
+acknowledgements carry "If you are not selected for this position, keep an eye on our jobs
+page", and matching "not selected" there turned 14 acks into rejections. Closing a live
+thread is the most destructive misread available: the role disappears from Do next and the
+record says it is dead, so you never follow up. `_strip_conditionals` removes clauses
+opened by if / should / unless / in the event before rejection and offer patterns run.
+
 **Weak interview signals are subject-only.** ATS acks routinely say "we'll be in touch
 about next steps" in boilerplate, which promoted "Thank you for applying to DoorDash"
 to an interview. Strong patterns (`invitation to interview`) may match the body; weak
@@ -438,4 +445,4 @@ intel [--limit N] [--company X] [--refresh] [--show]
 pipeline · why <id> · event · review · stats · analytics · dashboard [--artifact]
 ```
 
-Tests: `python3 -m unittest discover -s tests -v` (28 tests, guard the state machine).
+Tests: `python3 -m unittest discover -s tests -v` (36 tests, guard the state machine).

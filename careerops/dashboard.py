@@ -204,6 +204,7 @@ def collect(conn) -> dict:
         JOIN roles r        ON r.id = a.role_id
         JOIN companies c    ON c.id = r.company_id
         WHERE e.type NOT IN ('noise', 'unresolved')
+          AND e.source != 'portal'
         ORDER BY e.occurred_at DESC LIMIT 14""")]
 
     return {
@@ -347,7 +348,14 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
   margin:11px 0 3px;padding:0}
 .act-g:first-child{margin-top:0}
 /* Never let the list blow out the quadrant; it scrolls inside its own panel. */
-#actions{max-height:292px;overflow-y:auto;margin-right:-6px;padding-right:6px}
+#actions{max-height:292px;overflow-y:scroll;margin-right:-6px;padding-right:8px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+#actions::-webkit-scrollbar{width:9px;-webkit-appearance:none}
+#actions::-webkit-scrollbar-track{background:var(--grid);border-radius:var(--r-ctl)}
+#actions::-webkit-scrollbar-thumb{background:var(--faint);border-radius:var(--r-ctl);
+  border:2px solid var(--panel)}
+#actions::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+.int-scroll{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 /* Drill-downs: same shape everywhere they appear, in an action row or a table row. */
 .dd{border-top:1px solid var(--grid)}
 .dd:first-child{border-top:0}
@@ -487,11 +495,10 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 
 <section id="s-overview">
 <div class="grid">
-  <div class="panel"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Click a row to pull it up in the table.</div><div id="c-recent"></div></div>
+  <div class="panel"><h3>Recent activity</h3><div class="cap">The last things that moved, newest first. Portal-recorded outcomes are excluded: they carry the date they were logged, not the date they happened. Click a row for the table.</div><div id="c-recent"></div></div>
   <div class="panel dn" id="s-next"><h3>Do next</h3><div class="cap" id="dncap"></div><div id="actions"></div></div>
   <div class="panel"><h3>Aging, open applications</h3><div class="cap">Open applications by days since last activity. 22d+ is dormant.</div><div id="c-aging"></div><div class="sub">Funnel <span>all submitted, all time &middot; click a stage to filter</span></div><div id="c-funnel"></div></div>
   <div class="panel"><h3>Weekly activity</h3><div class="cap">Last 12 weeks.<span id="wkpace"></span></div><div id="c-weekly"></div></div>
-  <div class="panel wide" style="grid-column:1/-1"><h3>Fit score distribution</h3><div class="cap" id="fitcap">Roles worth considering. Click a band to filter.</div><div id="c-fit"></div></div>
   <div class="panel wide" style="grid-column:1/-1"><h3>By company</h3><div class="cap">Companies with 2+ applications, by what is still alive. Sorted by active threads. Click any segment to filter.</div><div id="c-co"></div></div>
 </div>
 </section>
@@ -511,6 +518,13 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
   <select id="act" title="Activity"><option value="">Any activity</option>
     <option value="7">Active last 7d</option><option value="14">Active last 14d</option>
     <option value="30">Active last 30d</option><option value="q21">Quiet 21d+</option></select>
+  <select id="age" title="How long the req has been open">
+    <option value="">Posted: any</option>
+    <option value="7">Posted last 7d</option>
+    <option value="21">Posted last 21d</option>
+    <option value="45">Posted last 45d</option>
+    <option value="o45">Older than 45d</option>
+    <option value="none">No posting date</option></select>
   <select id="ref" title="Referral"><option value="">Referral: any</option>
     <option value="1">Referred</option><option value="0">Cold</option></select>
   <input type="date" id="dt" title="Show activity on a specific date" style="flex:none;min-width:0">
@@ -520,7 +534,7 @@ ul.k{margin:4px 0 10px;padding-left:15px} ul.k li{font-size:12px;margin-bottom:3
 <div id="chips" class="chips"></div>
 <div class="scroll"><table><thead><tr>
 <th data-k="company">Company</th><th data-k="role">Role</th><th data-k="status">Status</th>
-<th data-k="fit_score">Fit</th><th data-k="applied_on">Applied</th><th data-k="days_quiet">Quiet</th>
+<th data-k="fit_score">Fit</th><th data-k="posted_age">Posted</th><th data-k="applied_on">Applied</th><th data-k="days_quiet">Quiet</th>
 </tr></thead><tbody id="tb"></tbody></table></div>
 <div class="stamp" style="margin-top:9px"><span id="count"></span> · click any row for its full event history</div>
 </section>
@@ -591,7 +605,7 @@ const mk=(t,a={})=>{const e=document.createElementNS(SVG,t);for(const k in a)e.s
 document.querySelectorAll('.info').forEach(el=>bind(el, HERO[+el.dataset.d][4]));
 
 // ---------- filter engine ----------
-const Fs = {q:'', status:'live', klass:'', fit:'', act:'', ref:'', date:'', dmode:'event',
+const Fs = {q:'', status:'live', klass:'', fit:'', act:'', ref:'', age:'', date:'', dmode:'event',
             chart:null, hero:null};
 const el = id => document.getElementById(id);
 
@@ -610,6 +624,11 @@ function match(a){
     if(Fs.fit==='none'){ if(a.fit_score!=null) return false; }
     else if(Fs.fit==='u50'){ if(a.fit_score==null||a.fit_score>=50) return false; }
     else if(a.fit_score==null||a.fit_score<+Fs.fit) return false;
+  }
+  if(Fs.age){
+    if(Fs.age==='none'){ if(a.posted_age!=null) return false; }
+    else if(Fs.age==='o45'){ if(a.posted_age==null||a.posted_age<=45) return false; }
+    else if(a.posted_age==null||a.posted_age>+Fs.age) return false;
   }
   if(Fs.act){
     if(Fs.act==='q21'){ if(a.days_quiet==null||a.days_quiet<21) return false; }
@@ -635,6 +654,7 @@ function chips(){
   if(Fs.chart) c.push(['chart',Fs.chart.label]);
   if(Fs.klass) c.push(['klass',Fs.klass]);
   if(Fs.fit) c.push(['fit', Fs.fit==='none'?'Unscored':Fs.fit==='u50'?'Fit under 50':'Fit '+Fs.fit+'+']);
+  if(Fs.age) c.push(['age', Fs.age==='none'?'No posting date':Fs.age==='o45'?'Posted 45d+':'Posted last '+Fs.age+'d']);
   if(Fs.act) c.push(['act', Fs.act==='q21'?'Quiet 21d+':'Active last '+Fs.act+'d']);
   if(Fs.ref!=='') c.push(['ref', Fs.ref==='1'?'Referred':'Cold']);
   if(Fs.date) c.push(['date', (Fs.dmode==='applied'?'Applied ':'Activity ')+Fs.date]);
@@ -653,9 +673,9 @@ function chips(){
   writeHash();
 }
 function clearAll(){
-  Object.assign(Fs,{q:'',status:'live',klass:'',fit:'',act:'',ref:'',date:'',chart:null,hero:null});
+  Object.assign(Fs,{q:'',status:'live',klass:'',fit:'',act:'',ref:'',age:'',date:'',chart:null,hero:null});
   el('q').value='';el('f').value='live';el('kl').value='';el('fit').value='';
-  el('act').value='';el('ref').value='';el('dt').value='';el('dtm').style.display='none';
+  el('act').value='';el('ref').value='';el('age').value='';el('dt').value='';el('dtm').style.display='none';
   view();
 }
 function onChip(e){
@@ -667,6 +687,7 @@ function onChip(e){
   else if(k==='klass'){Fs.klass='';el('kl').value='';}
   else if(k==='fit'){Fs.fit='';el('fit').value='';}
   else if(k==='act'){Fs.act='';el('act').value='';}
+  else if(k==='age'){Fs.age='';el('age').value='';}
   else if(k==='ref'){Fs.ref='';el('ref').value='';}
   else if(k==='date'){Fs.date='';el('dt').value='';el('dtm').style.display='none';}
   view();
@@ -680,7 +701,7 @@ function writeHash(){
   if(hashLock) return;
   const q={};
   if(Fs.status!=='live')q.s=Fs.status; if(Fs.klass)q.k=Fs.klass; if(Fs.fit)q.fit=Fs.fit;
-  if(Fs.act)q.a=Fs.act; if(Fs.ref!=='')q.r=Fs.ref; if(Fs.q)q.q=Fs.q;
+  if(Fs.act)q.a=Fs.act; if(Fs.age)q.g=Fs.age; if(Fs.ref!=='')q.r=Fs.ref; if(Fs.q)q.q=Fs.q;
   if(Fs.date){q.d=Fs.date;q.dm=Fs.dmode;} if(Fs.hero!=null)q.h=Fs.hero;
   const str=Object.entries(q).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
   history.replaceState(null,'',str?'#'+str:location.pathname+location.search);
@@ -691,7 +712,7 @@ function readHash(){
     return [k,decodeURIComponent(v.join('='))];}));
   hashLock=true;
   if(q.s){Fs.status=q.s;el('f').value=q.s;} if(q.k){Fs.klass=q.k;el('kl').value=q.k;}
-  if(q.fit){Fs.fit=q.fit;el('fit').value=q.fit;} if(q.a){Fs.act=q.a;el('act').value=q.a;}
+  if(q.fit){Fs.fit=q.fit;el('fit').value=q.fit;} if(q.a){Fs.act=q.a;el('act').value=q.a;} if(q.g){Fs.age=q.g;el('age').value=q.g;}
   if(q.r!==undefined){Fs.ref=q.r;el('ref').value=q.r;} if(q.q){Fs.q=q.q;el('q').value=q.q;}
   if(q.d){Fs.date=q.d;el('dt').value=q.d;Fs.dmode=q.dm||'event';el('dtm').style.display='';}
   if(q.h!==undefined)Fs.hero=+q.h;
@@ -708,7 +729,7 @@ function readHash(){
     b.className='fold'; b.type='button';
     const set=on=>{pn.classList.toggle('shut',on);b.textContent=on?'+':'\u2212';
       b.setAttribute('aria-label',(on?'Expand ':'Collapse ')+key);b.setAttribute('aria-expanded',String(!on));};
-    const DEFAULT_SHUT=['By company','Fit score distribution'];
+    const DEFAULT_SHUT=['By company'];
     set(shut.length?shut.includes(key):DEFAULT_SHUT.includes(key));
     b.addEventListener('click',()=>{
       const opening=pn.classList.contains('shut');
@@ -739,6 +760,7 @@ el('f').onchange=e=>{Fs.status=e.target.value;Fs.chart=null;Fs.hero=null;view();
 el('kl').onchange=e=>{Fs.klass=e.target.value;view();};
 el('fit').onchange=e=>{Fs.fit=e.target.value;view();};
 el('act').onchange=e=>{Fs.act=e.target.value;view();};
+el('age').onchange=e=>{Fs.age=e.target.value;view();};
 el('ref').onchange=e=>{Fs.ref=e.target.value;view();};
 el('dt').onchange=e=>{Fs.date=e.target.value;
   el('dtm').style.display=Fs.date?'':'none';view();};
@@ -851,31 +873,6 @@ CHARTS.push(function(){
       t.textContent=x.label;s.appendChild(t);}
   });
   document.getElementById('c-weekly').appendChild(s);
-});
-
-// ---------- fit distribution ----------
-CHARTS.push(function(){
-  document.getElementById('fitcap').textContent =
-    `All scored roles, applied and not. ${D.fit_low} below 50 excluded. Click a band to filter.`;
-  document.getElementById('c-fit').innerHTML='';
-  const d=D.fit_hist,W=cw('c-fit'),H=196,pad={l:20,r:6,t:12,b:22};
-  const max=Math.max(...d.map(x=>x.n),1),iw=(W-pad.l-pad.r)/d.length;
-  const s=mk('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
-  const ramp=['--seq2','--seq3','--seq4','--seq5'];
-  d.forEach((x,i)=>{
-    const h=x.n/max*(H-pad.t-pad.b),x0=pad.l+i*iw+iw*0.16,bw=iw*0.68,base=H-pad.b;
-    const go=()=>setFilter(a=>a.fit_score>=x.lo&&a.fit_score<=x.hi,'fit '+x.label);
-    const tip=`${x.label}: ${x.n} role${x.n===1?'':'s'} \u00b7 click to filter`;
-    const hit=mk('rect',{x:x0,y:pad.t,width:bw,height:base-pad.t,fill:'transparent',class:'hit'});
-    bind(hit,tip);hit.addEventListener('click',go);s.appendChild(hit);
-    if(x.n>0){const r=mk('rect',{x:x0,y:base-h,width:bw,height:h,rx:2,fill:cv(ramp[i]),class:'hit'});
-      bind(r,tip);r.addEventListener('click',go);
-      s.appendChild(r);
-      const v=mk('text',{x:x0+bw/2,y:base-h-5,class:'vlab','text-anchor':'middle'});v.textContent=x.n;s.appendChild(v);}
-    const t=mk('text',{x:x0+bw/2,y:H-8,class:'axis hit','text-anchor':'middle'});t.textContent=x.label;
-    bind(t,tip);t.addEventListener('click',go);s.appendChild(t);
-  });
-  document.getElementById('c-fit').appendChild(s);
 });
 
 // ---------- by company ----------
@@ -1114,9 +1111,11 @@ function view(){
       <td>${esc(a.role)}${a.attempt?` <span class="pill attempt" data-t="${esc(a.attempt_note)}">try ${a.attempt}</span>`:''}<div class="muted small">${esc(a.klass)}${a.location?' · '+esc(a.location):''}</div></td>
       <td><span class="pill s-${a.status}">${a.status}</span>${a.activity==='dormant'?' <span class="pill s-prospect">dormant</span>':''}</td>
       <td class="num">${a.fit_score??''}</td>
+      <td class="num">${a.posted_age==null?'<span class="muted">&mdash;</span>'
+        :`<span class="age ${a.posted_age<=7?'fresh':a.posted_age<=21?'ok':'old'}">${a.posted_age}d</span>`}</td>
       <td class="num muted">${a.submitted_on||(a.applied_on||'').slice(0,10)}</td>
       <td class="num">${q1}</td></tr>`;}).join('')
-    ||'<tr><td colspan="6" class="muted">No records match these filters.</td></tr>';
+    ||'<tr><td colspan="7" class="muted">No records match these filters.</td></tr>';
 }
 tb.addEventListener('mouseover',e=>{
   const el=e.target.closest('.attempt'); if(!el) return;
@@ -1137,7 +1136,7 @@ tb.addEventListener('click',e=>{
       <div class="m">${esc(e.subject||'')}</div><div class="m">${esc(e.raw||'')}</div></div>`).join('')
     :'<div class="muted small">No events recorded.</div>';
   const row=document.createElement('tr');row.className='det';
-  row.innerHTML=`<td colspan="6">${h}</td>`;tr.after(row);});
+  row.innerHTML=`<td colspan="7">${h}</td>`;tr.after(row);});
 document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
   const k=th.dataset.k;sortAsc=(k===sortK)?!sortAsc:(k==='days_quiet'||k==='company');sortK=k;view();});
 drawAll();             // charts size themselves to their panels
