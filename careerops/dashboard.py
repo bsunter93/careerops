@@ -20,7 +20,7 @@ def _rows(conn, q, args=()):
 
 def collect(conn) -> dict:
     apps = _rows(conn, """
-        SELECT a.id, c.name AS company, r.title AS role, r.location, r.url,
+        SELECT a.id, a.snoozed_until, a.snooze_reason, c.name AS company, r.title AS role, r.location, r.url,
                a.applied_on, a.submitted_at, a.status, a.activity, a.channel, a.referral, a.fit_score,
                a.fit_reasoning, r.comp_min, r.comp_max,
                (SELECT MAX(occurred_at) FROM events e
@@ -95,6 +95,7 @@ def collect(conn) -> dict:
            WHERE r.posted_at IS NOT NULL""")}
     for a in apps:
         a["posted_age"] = ages.get(a["id"])
+        a["snoozed"] = a.get("snoozed_until") and a["snoozed_until"] > __import__("datetime").date.today().isoformat()
         a["ever_advanced"] = a["id"] in adv_ids or a["status"] in POS
         a["ever_interviewed"] = a["id"] in itv_ids or a["status"] in ("interview", "offer")
     positive = [a for a in real if a["ever_advanced"]]
@@ -367,8 +368,9 @@ svg{display:block;width:100%;max-width:100%;height:auto;overflow:visible}
 .age.fresh{color:var(--good);background:color-mix(in srgb,var(--good) 13%,transparent)}
 .age.ok{color:var(--muted);background:var(--grid)}
 .age.old{color:var(--serious);background:color-mix(in srgb,var(--serious) 13%,transparent)}
-.lock{font:600 10.5px var(--mono);color:var(--critical);margin-top:2px;white-space:normal}
-.lock.warn{color:var(--warning)}
+.wq{display:inline-block;font-size:11px;color:var(--warning);cursor:help;margin-left:3px;
+  vertical-align:1px}
+.wq.hard{color:var(--critical)}
 .act-x{flex:none;color:var(--faint);font:400 14px var(--mono);transition:transform .14s}
 .act.open .act-x{transform:rotate(90deg);color:var(--accent)}
 .act-d{padding:0 0 10px 13px}
@@ -913,7 +915,8 @@ inPlay.forEach(a=>push({a,c:'good',co:a.company,ro:a.role,val:a.days_quiet,unit:
 const AGE_BAND=a=>{const d=a.posted_age;
   return d==null?3 : d<=7?0 : d<=21?1 : d<=45?2 : 3;};
 const BAND_LABEL=['posted this week','posted 1-3 weeks ago','posted 3-6 weeks ago','stale or unknown'];
-const nextUp=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score)
+const snoozed=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&a.snoozed);
+const nextUp=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&!a.snoozed)
   .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score).slice(0,8);
 (function(){const c=document.getElementById('dncap'); if(c) c.textContent=
   `Best ${nextUp.length} of ${T.prospects} prospects, ranked by fit. Open a row for the reasoning, your record there, and sentiment.`;})();
@@ -926,8 +929,10 @@ nextUp.forEach(a=>{
   const L=LIM[a.company];
   push({a,c:'',co:a.company,ro:a.role,val:a.fit_score,fit:true,
         age:a.posted_age==null?null:a.posted_age,
-        lock:L&&L.used>=L.cap?`${L.used}/${L.cap} in ${L.days}d \u00b7 opens ${L.opens}`:null,
-        warn:L&&L.used<L.cap?`${L.used}/${L.cap} applications used in ${L.days}d`:null});});
+        lock:L&&L.used>=L.cap
+          ?`${a.company} caps applicants at ${L.cap} applications per ${L.days} days and you have used ${L.used}. A slot reopens ${L.opens}.`
+          :L?`${a.company} caps applicants at ${L.cap} per ${L.days} days. You have used ${L.used}.`:null,
+        locked:!!(L&&L.used>=L.cap)});});
 const stale=D.apps.filter(a=>a.activity==='dormant');
 if(stale.length||T.review) push({group:'Housekeeping'});
 if(stale.length)push({c:'quiet',co:'Dormant',ro:`silent ${D.stale_days}+ days`,val:stale.length,
@@ -942,8 +947,7 @@ document.getElementById('actions').innerHTML = acts.map((o,i)=>{
     +` title="${esc(o.co)} \u2014 ${esc(o.ro)}">`
     +`<div class="bar"></div><div class="act-t"><b>${esc(o.co)}</b> <span class="ro">${esc(o.ro)}</span>`
     +(o.age!=null?` <span class="age ${o.age<=7?'fresh':o.age<=21?'ok':'old'}">${o.age}d</span>`:'')
-    +(o.lock?`<div class="lock">\u26a0 capped: ${esc(o.lock)}</div>`
-      :o.warn?`<div class="lock warn">${esc(o.warn)}</div>`:'')+`</div>`
+    +(o.lock?` <span class="wq${o.locked?' hard':''}" data-t="${esc(o.lock)}">\u26a0</span>`:'')+`</div>`
     +val+`<span class="act-x">\u203a</span></div><div class="act-d" hidden></div></div>`;
 }).join('') || '<div class="act good"><div class="bar"></div><div class="act-t">Nothing needs attention.</div></div>';
 
@@ -957,6 +961,7 @@ document.getElementById('actions').addEventListener('click',e=>{
         +`<button type="button" data-co="${esc(o.a.company)}">Show ${esc(o.a.company)} in the table</button>`
         +(o.a.status==='prospect'
            ? `<button type="button" class="cp" data-cmd="careerops apply ${o.a.id}">Applied? copy <code>careerops apply ${o.a.id}</code></button>`
+             + `<button type="button" class="cp" data-cmd="careerops snooze ${o.a.id} --days 30">Not now? copy <code>careerops snooze ${o.a.id}</code></button>`
            : '')
         +`</div>`
       : `<div class="dd-act"><button type="button" data-flt="${o.filter?1:0}">Show these in the table</button></div>`;
@@ -1103,12 +1108,14 @@ function view(){
       <td class="num">${q1}</td></tr>`;}).join('')
     ||'<tr><td colspan="7" class="muted">No records match these filters.</td></tr>';
 }
-tb.addEventListener('mouseover',e=>{
-  const el=e.target.closest('.attempt'); if(!el) return;
+// One delegated tooltip for every [data-t] on the page, so a warning icon in Do next
+// and a rating chip in the table share the same affordance.
+document.addEventListener('mouseover',e=>{
+  const el=e.target.closest?.('[data-t]'); if(!el) return;
   tip.textContent=el.dataset.t; tip.style.opacity=1;
   tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-8)+'px';
   tip.style.top=(e.clientY-38)+'px';});
-tb.addEventListener('mouseout',e=>{ if(e.target.closest('.attempt')) tip.style.opacity=0;});
+document.addEventListener('mouseout',e=>{ if(e.target.closest?.('[data-t]')) tip.style.opacity=0;});
 tb.addEventListener('click',e=>{
   const tr=e.target.closest('tr.r');if(!tr)return;
   const nx=tr.nextElementSibling;if(nx&&nx.classList.contains('det')){nx.remove();return;}

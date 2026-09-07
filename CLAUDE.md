@@ -248,6 +248,17 @@ Use `CAREEROPS_API_BASE` to override without colliding.
 section; dealbreakers cap the score under 40 regardless of skill match. Encoding the
 IC-track preference moved a role from 79 to 22 because its mandate was building a team.
 
+**Dismissal is the primitive; a cap is one automatic source of it.** Hardcoding employer
+application limits does not generalise: they are undocumented, company-specific and change.
+So `applications.snoozed_until` is the mechanism ("not now, for any reason"), and a cap is
+simply a computed reason to hide something. `careerops snooze <id> --days 30` from the CLI,
+offered as a copyable command in the drill-down, same as `apply`.
+
+**A constraint is a hover, not a headline.** The cap first rendered as a red line of text
+under every affected row, which shouted at the reader on rows they could do nothing about.
+It is now a single inline warning glyph carrying the explanation in a tooltip, using one
+delegated `[data-t]` handler shared with the table's rating chips.
+
 **Some employers cap applications per window, and a rejection still burns a slot.**
 Headway allows 2 across all roles per 60 days. A soft rejection in July had been sitting
 misclassified as an ack, so the system showed one slot used when both were gone, and the

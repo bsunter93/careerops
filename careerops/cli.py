@@ -377,6 +377,26 @@ def _ns(base, **kw):
     return argparse.Namespace(**d)
 
 
+def cmd_snooze(a):
+    """Hide a prospect from Do next until a date. The general form of 'not now'."""
+    from datetime import date, timedelta
+    conn = db.connect(a.db)
+    row = conn.execute("""SELECT a.id, c.name co, r.title FROM applications a
+                          JOIN roles r ON r.id=a.role_id JOIN companies c ON c.id=r.company_id
+                          WHERE a.id=?""", (a.id,)).fetchone()
+    if not row:
+        print(f"no application {a.id}"); return 1
+    if a.clear:
+        conn.execute("UPDATE applications SET snoozed_until=NULL, snooze_reason=NULL WHERE id=?", (a.id,))
+        conn.commit(); print(f"[{a.id}] {row['co']} - {row['title'][:44]}: snooze cleared"); return
+    until = a.until or (date.today() + timedelta(days=a.days)).isoformat()
+    conn.execute("UPDATE applications SET snoozed_until=?, snooze_reason=? WHERE id=?",
+                 (until, a.reason, a.id))
+    conn.commit()
+    print(f"[{a.id}] {row['co']} - {row['title'][:44]}")
+    print(f"  hidden from Do next until {until}" + (f" ({a.reason})" if a.reason else ""))
+
+
 def cmd_dashboard(a):
     from .dashboard import write
     import subprocess, pathlib
@@ -504,6 +524,10 @@ def main(argv=None):
     rf = sub.add_parser("refresh", help="sync, resolve, discover, score, render")
     rf.add_argument("--since", default="30d"); rf.add_argument("--score", type=int, default=25)
     rf.add_argument("--open", action="store_true"); rf.set_defaults(fn=cmd_refresh)
+    sz = sub.add_parser("snooze", help="hide a prospect from Do next until a date")
+    sz.add_argument("id", type=int); sz.add_argument("--days", type=int, default=30)
+    sz.add_argument("--until"); sz.add_argument("--reason")
+    sz.add_argument("--clear", action="store_true"); sz.set_defaults(fn=cmd_snooze)
     dm = sub.add_parser("demo"); dm.add_argument("--out"); dm.add_argument("--open", action="store_true")
     dm.add_argument("--artifact", action="store_true"); dm.set_defaults(fn=cmd_demo)
     dh = sub.add_parser("dashboard"); dh.add_argument("--out"); dh.add_argument("--open", action="store_true")
