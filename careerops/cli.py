@@ -388,24 +388,35 @@ def cmd_dashboard(a):
 
 
 def cmd_resume(a):
-    from .resume import build, page_count
-    r = build(db.connect(a.db), a.id, a.out)
-    print(f"{r['company']} - {r['title']}  (fit {r['score']})")
-    print(f"  tagline: {r['tagline']}")
-    print(f"  profile: {r['profile'][:150]}...")
-    print(f"  bullets: {len(r['bullets'])} kept, {len(r['dropped'])} dropped")
-    print("  top-ranked:")
-    for b in r["top"]:
-        print(f"    {b['score']:>5}  {b['label']}")
-    print(f"  -> {r['out']}")
-    if a.verify:
+    """Generate a tailored resume. With --verify, shrink until Word says one page.
+
+    The house rule is one page verified in Word, and a rule enforced by hand is not
+    enforced. A long bullet displacing a short one silently adds a line, so the fix is
+    to drop the lowest-ranked bullet and re-render rather than to guess at wording.
+    """
+    from .resume import build, page_count, MAX_BULLETS
+    cap = a.bullets or MAX_BULLETS
+    for attempt in range(4):
+        r = build(db.connect(a.db), a.id, a.out, cap=cap)
+        if attempt == 0:
+            print(f"{r['company']} - {r['title']}  (fit {r['score']})")
+            print(f"  tagline: {r['tagline']}")
+            print(f"  profile: {r['profile'][:150]}...")
+        print(f"  bullets: {len(r['bullets'])} kept, {len(r['dropped'])} dropped")
+        if not a.verify:
+            break
         n = page_count(r["out"])
         if n is None:
             print("  pages: could not verify (is Word installed and responsive?)")
-        elif n == 1:
+            break
+        if n == 1:
             print("  pages: 1, verified in Word")
-        else:
-            print(f"  pages: {n} IN WORD. House rule is one page; trim a bullet or shorten one.")
+            break
+        print(f"  pages: {n} in Word, dropping the lowest-ranked bullet and re-rendering")
+        cap -= 1
+    else:
+        print("  still over one page after three trims; shorten a bullet in master.json")
+    print(f"  -> {r['out']}")
 
 
 def cmd_analytics(a):
@@ -474,7 +485,8 @@ def main(argv=None):
     it.add_argument("--show", action="store_true"); it.set_defaults(fn=cmd_intel)
     sub.add_parser("analytics").set_defaults(fn=cmd_analytics)
     rs = sub.add_parser("resume"); rs.add_argument("id", type=int); rs.add_argument("--out")
-    rs.add_argument("--verify", action="store_true", help="render through Word and check it is one page")
+    rs.add_argument("--verify", action="store_true", help="render through Word; shrink until one page")
+    rs.add_argument("--bullets", type=int, help="cap the bullet count directly")
     rs.set_defaults(fn=cmd_resume)
     ap = sub.add_parser("apply"); ap.add_argument("id", type=int)
     ap.add_argument("--date", help="YYYY-MM-DD, defaults to today")

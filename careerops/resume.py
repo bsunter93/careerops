@@ -118,7 +118,7 @@ def prose(company, title, jd, emphasize) -> Optional[dict]:
     return d
 
 
-def build(conn, app_id: int, out: Optional[str] = None) -> dict:
+def build(conn, app_id: int, out: Optional[str] = None, cap: int = MAX_BULLETS) -> dict:
     row = conn.execute("""SELECT a.id, c.name company, r.title, r.jd_text, a.fit_reasoning, a.fit_score
                           FROM applications a JOIN roles r ON r.id=a.role_id
                           JOIN companies c ON c.id=r.company_id WHERE a.id=?""", (app_id,)).fetchone()
@@ -134,7 +134,7 @@ def build(conn, app_id: int, out: Optional[str] = None) -> dict:
 
     m = _load_master()
     scored = rank_bullets(m, emph, row["title"], row["jd_text"])
-    chosen = select(scored)
+    chosen = select(scored, cap=cap)
     pr = prose(row["company"], row["title"], row["jd_text"], emph)
     if not pr:
         raise SystemExit("prose generation failed (LLM backend unavailable)")

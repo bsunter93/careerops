@@ -263,6 +263,11 @@ with contradictory numbers.
 title 3×, JD 1×) so selection is inspectable. Only the tagline and profile paragraph go
 through the model; every factual claim comes from the master.
 
+**`--verify` shrinks until Word says one page.** It drops the lowest-ranked bullet and
+re-renders, up to three times, because a long bullet displacing a short one silently adds
+a line and guessing at wording is slower than removing the weakest claim. A rule enforced
+by hand is not enforced.
+
 **`careerops resume <id> --verify` renders through Word and counts pages.** Word is
 sandboxed: it prompts for access to unfamiliar directories, and a prompt naming a hidden
 folder like `/tmp` hangs the AppleEvent with no visible cause and no error. Write the PDF
