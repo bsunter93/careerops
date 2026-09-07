@@ -157,7 +157,7 @@ def build(conn, app_id: int, out: Optional[str] = None, cap: int = MAX_BULLETS) 
             "score": row["fit_score"]}
 
 
-def page_count(docx_path: str) -> "Optional[int]":
+def page_count(docx_path: str, keep: bool = False) -> "Optional[int]":
     """Render through real Word and count pages. Quick Look substitutes fonts (Calibri
     ships inside Office, not system-wide) and reports one page for a document Word sets
     as two, so this is the only trustworthy check.
@@ -168,7 +168,9 @@ def page_count(docx_path: str) -> "Optional[int]":
     """
     import re, subprocess, pathlib
     src = pathlib.Path(docx_path).resolve()
-    out = src.with_name("._pagecheck.pdf")
+    # Keeping the render is the point once it is verified: the PDF is what gets sent,
+    # because the one-page break depends on Calibri metrics the recipient may not have.
+    out = src.with_suffix(".pdf") if keep else src.with_name("._pagecheck.pdf")
     if out.exists():
         out.unlink()
     script = f'''
@@ -188,5 +190,5 @@ def page_count(docx_path: str) -> "Optional[int]":
     except Exception:
         return None
     finally:
-        if out.exists():
+        if out.exists() and not keep:
             out.unlink()

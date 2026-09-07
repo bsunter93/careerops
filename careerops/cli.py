@@ -405,13 +405,19 @@ def cmd_resume(a):
         print(f"  bullets: {len(r['bullets'])} kept, {len(r['dropped'])} dropped")
         if not a.verify:
             break
-        n = page_count(r["out"])
+        n = page_count(r["out"], keep=True)
         if n is None:
             print("  pages: could not verify (is Word installed and responsive?)")
             break
         if n == 1:
+            pdf = str(pathlib.Path(r["out"]).with_suffix(".pdf"))
             print("  pages: 1, verified in Word")
+            print(f"  pdf:   {pdf}")
             break
+        # a rejected render must not leave its PDF behind: that is the file you would send
+        stale = pathlib.Path(r["out"]).with_suffix(".pdf")
+        if stale.exists():
+            stale.unlink()
         print(f"  pages: {n} in Word, dropping the lowest-ranked bullet and re-rendering")
         cap -= 1
     else:

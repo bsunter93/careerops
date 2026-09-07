@@ -263,6 +263,11 @@ with contradictory numbers.
 title 3×, JD 1×) so selection is inspectable. Only the tagline and profile paragraph go
 through the model; every factual claim comes from the master.
 
+**Send the PDF, not the .docx.** The one-page break depends on Calibri metrics the
+recipient may not have, and Greenhouse and Ashby both parse PDF fine. `--verify` already
+renders one through Word, so it keeps it beside the .docx instead of deleting it. A
+render that fails the page check must delete its PDF: that is the file you would send.
+
 **`--verify` shrinks until Word says one page.** It drops the lowest-ranked bullet and
 re-renders, up to three times, because a long bullet displacing a short one silently adds
 a line and guessing at wording is slower than removing the weakest claim. A rule enforced
