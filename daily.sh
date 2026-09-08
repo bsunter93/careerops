@@ -6,6 +6,7 @@ export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
 LOG="daily.log"
 {
   echo "===== $(date '+%Y-%m-%d %H:%M') ====="
+  ./.venv/bin/python -m careerops.cli sync          2>&1 | grep -v Warning | grep -v warnings.warn
   ./.venv/bin/python -m careerops.cli discover      2>&1 | grep -v Warning | grep -v warnings.warn
   ./.venv/bin/python -m careerops.cli fit --limit 25 2>&1 | grep -v Warning | grep -v warnings.warn
   ./.venv/bin/python -m careerops.cli dashboard     2>&1 | grep -v Warning | grep -v warnings.warn
