@@ -940,8 +940,17 @@ const AGE_BAND=a=>{const d=a.posted_age;
   return d==null?3 : d<=7?0 : d<=21?1 : d<=45?2 : 3;};
 const BAND_LABEL=['posted this week','posted 1-3 weeks ago','posted 3-6 weeks ago','stale or unknown'];
 const snoozed=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&a.snoozed);
-const nextUp=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&!a.snoozed)
-  .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score).slice(0,8);
+// Cut at a band boundary, never inside one. A flat slice at 8 ended mid "1-3 weeks",
+// so which 20-day-old reqs you saw depended on how many were posted this week rather
+// than on anything about them. Take roughly eight, then finish whichever band that
+// lands in, with a hard ceiling so a busy week cannot turn the list into the table.
+const DN_TARGET=8, DN_MAX=16;
+const ranked=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&!a.snoozed)
+  .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score);
+let dnCut=Math.min(ranked.length,DN_MAX);
+for(let i=DN_TARGET;i<dnCut;i++){
+  if(AGE_BAND(ranked[i])!==AGE_BAND(ranked[i-1])){dnCut=i;break;}}
+const nextUp=ranked.slice(0,dnCut);
 (function(){const c=document.getElementById('dncap'); if(c) c.textContent=
   `Best ${nextUp.length} of ${T.prospects} prospects, ranked by fit. Open a row for the reasoning, your record there, and sentiment.`;})();
 if(nextUp.length) push({group:'Apply next'});
