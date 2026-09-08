@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS applications (
   status_updated_at TEXT,
   fit_score         REAL,
   fit_reasoning     TEXT,
-  notes             TEXT
+  notes             TEXT,
+  snoozed_until  TEXT,             -- hidden from Do next until this date
+  snooze_reason  TEXT
 );
 
 -- Append-only. Never edited; status is derived from these.
@@ -111,6 +113,7 @@ CREATE TABLE IF NOT EXISTS portal_snapshot (
   portal_status TEXT,
   portal_seen   TEXT,
   observed_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  note          TEXT,
   UNIQUE(company, role)
 );
 

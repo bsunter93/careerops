@@ -74,6 +74,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if rcols and "posted_at" not in rcols:
         conn.execute("ALTER TABLE roles ADD COLUMN posted_at TEXT")
         conn.commit()
+    # Columns added to the live database by hand and never declared. A fresh install
+    # built from schema.sql was missing them, so `careerops demo` failed outright on a
+    # clean checkout: exactly the failure roles.posted_at had, found by fixing that one
+    # and then not checking whether anything else had drifted the same way.
+    for table, col, decl in (("applications", "snoozed_until", "TEXT"),
+                             ("applications", "snooze_reason", "TEXT"),
+                             ("portal_snapshot", "note", "TEXT")):
+        try:
+            have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.DatabaseError:
+            continue
+        if have and col not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            conn.commit()
 
 
 def init(conn: sqlite3.Connection) -> None:
