@@ -447,3 +447,47 @@ class TestSoftRejections(unittest.TestCase):
         c = classify("Interview with Stripe", "recruiting@stripe.com",
                      "We think you are a strong match and would like to schedule an interview.")
         self.assertEqual(c.event_type, "interview_invite")
+
+
+class TestHardWrappedAndBoilerplate(unittest.TestCase):
+    """Three ways a form email invented a status change on a live application."""
+
+    def test_a_line_break_does_not_split_a_conditional(self):
+        """Email bodies are hard-wrapped, so a break lands mid-clause constantly.
+        Google's referral mail wrapped "if you haven't heard\\r\\nfrom us in eight
+        weeks... we likely proceeded with other candidates", and the surviving tail
+        read as a rejection of a live application."""
+        c = classify("A Googler recently referred you!", "sourcer@xwf.google.com",
+                     "We receive a high volume of applications, so if you haven't heard\r\n"
+                     "from us in eight weeks after the application, we likely proceeded\r\n"
+                     "with other candidates for that particular role.")
+        self.assertNotEqual(c.event_type, "rejection")
+
+    def test_a_footer_cannot_classify_the_message(self):
+        """Google's accessibility footer offers to "schedule a call with a specialist"."""
+        from careerops.classify import strip_boilerplate
+        body = ("Thanks for your interest, we have your application on file. " + "x" * 250 +
+                " We provide reasonable accommodation to candidates. For a confidential "
+                "discussion please schedule a call with a specialist here.")
+        self.assertNotIn("schedule a call", strip_boilerplate(body))
+        self.assertNotEqual(classify("Your application", "a@b.com", body).event_type,
+                            "interview_invite")
+
+    def test_a_short_message_is_never_gutted_by_the_footer_rule(self):
+        from careerops.classify import strip_boilerplate
+        s = "We are an equal opportunity employer."
+        self.assertEqual(strip_boilerplate(s), s)
+
+    def test_a_conditional_cannot_promote_either(self):
+        """The rule was written for "if you are not selected" and applied only to
+        rejections, leaving the mirror image live. A promotion invented out of a
+        conditional is the same error; it just flatters instead of stinging."""
+        c = classify("A Googler recently referred you!", "sourcer@xwf.google.com",
+                     "If you were asked to complete an online assessment, your "
+                     "application will be shared with the recruiter once that is done.")
+        self.assertNotEqual(c.event_type, "assessment")
+
+    def test_a_real_assessment_request_still_lands(self):
+        c = classify("Next step: online assessment", "no-reply@us.greenhouse-mail.io",
+                     "Please complete the online assessment by Friday.")
+        self.assertEqual(c.event_type, "assessment")

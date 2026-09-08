@@ -381,7 +381,7 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
 
 
 CONDITIONAL = re.compile(
-    r"\b(?:if|should|unless|in the event|in case)\b[^.!?;\n]*", re.I)
+    r"\b(?:if|should|unless|in the event|in case)\b[^.!?;]*", re.I)
 
 
 def _strip_conditionals(text: str) -> str:
@@ -401,8 +401,16 @@ def _strip_conditionals(text: str) -> str:
     Losing a real rejection whose outcome shares a sentence with a conditional is the
     accepted trade. A missed rejection leaves a dead row on the board; a false one deletes
     a live opportunity.
+
+    Whitespace is collapsed first, because email bodies are hard-wrapped and a line break
+    lands mid-clause constantly. Excluding newlines from the clause was an attempt to stop
+    a runaway match in a body with no punctuation, and it recreated the exact bug it
+    replaced: Google's referral mail wrapped "if you haven't heard\r\nfrom us in eight
+    weeks... we likely proceeded with other candidates", the strip stopped at the break,
+    and the surviving tail read as a rejection of a live application. The outcome patterns
+    already match across line breaks, so the stripper has to as well.
     """
-    return CONDITIONAL.sub(" ", text or "")
+    return CONDITIONAL.sub(" ", re.sub(r"\s+", " ", text or ""))
 
 
 # Verdicts that close an application. Their failure is asymmetric: a false close deletes a
@@ -430,13 +438,36 @@ def _verdict_strength(etype: str, subject: str, body: str) -> float:
     return 0.4                          # a weak fragment, and nothing else
 
 
+# Recruiting mail ends in boilerplate that is about the company, not the candidate:
+# EEO statements, accessibility notices, privacy policies, unsubscribe links. Google's
+# accommodation footer offers to "schedule a call with a specialist", which read as an
+# interview invitation on a referral-routing email. Nothing after these markers concerns
+# this application, so nothing after them should be able to classify it.
+BOILERPLATE = re.compile(
+    r"\b(?:equal opportunity employ|disability accommodation|employ-?ability|"
+    r"reasonable accommodation|unsubscribe|privacy policy|confidentiality notice|"
+    r"this e-?mail and any attachments|do not reply to this )", re.I)
+BOILERPLATE_FLOOR = 200          # never gut a short message
+
+
+def strip_boilerplate(body: str) -> str:
+    """Cut a message at its first footer marker."""
+    m = BOILERPLATE.search(body or "")
+    return body[:m.start()] if (m and m.start() >= BOILERPLATE_FLOOR) else (body or "")
+
+
 def _event_type(subject: str, body: str = "") -> "tuple":
     """Return (type, literal matched text). Strong patterns may match subject or
     body; weak ones only the subject. A definitive ack subject blocks promotion."""
     subj_low = (subject or "").lower()
-    both_low = f"{subject} {body}".lower()
-    # Outcome language is only trusted outside hypothetical clauses.
-    outcome_low = _strip_conditionals(both_low)
+    # Hypotheticals are stripped for every event type, not just outcomes. The rule was
+    # written for "if you are not selected" and applied only to rejections, which left
+    # the mirror image live: "if you were asked to complete an online assessment" turned
+    # a referral-routing email into an assessment, and a promotion invented out of a
+    # conditional is the same error as a rejection invented out of one. It just flatters
+    # instead of stinging, so it survives longer before anyone questions it.
+    both_low = _strip_conditionals(f"{subject} {body}".lower())
+    outcome_low = both_low
     ack_subject = bool(ACK_SUBJECT.search(subject or ""))
 
     for etype, pats in EVENT_PATTERNS:
@@ -502,7 +533,7 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
         c.reasons.append("aggregator:" + dom)
         return c
 
-    etype, trigger = _event_type(subject, body or "")
+    etype, trigger = _event_type(subject, strip_boilerplate(body or ""))
     c.event_type = etype
     c.trigger = trigger
     if trigger:

@@ -38,7 +38,12 @@ DEFAULT_QUERY = (
     '(subject:(application OR applying OR applied OR candidate OR interview OR recruiter '
     'OR "thank you for your interest" OR "follow-up for" OR "follow up for" '
     'OR "your application" OR "moving forward" OR "not moving forward" '
-    'OR "your candidacy" OR "your submission" OR "position" OR "opening") '
+    'OR "your candidacy" OR "your submission" OR "position" OR "opening" '
+    # Referral routing mail names no role and no application: "A Googler recently
+    # referred you!" came from xwf.google.com and failed both arms, so a referral being
+    # walked to a recruiter went unrecorded. Assessment and next-step mail is the same
+    # shape, arriving before the vocabulary of "application" shows up.
+    'OR referred OR referral OR "next steps" OR assessment OR "your resume") '
     'OR from:(greenhouse-mail.io OR greenhouse.io OR myworkday.com OR workday.com '
     'OR ashbyhq.com OR lever.co OR smartrecruiters.com OR icims.com OR jobvite.com '
     'OR workablemail.com OR gem.com OR taleo.net OR avature.net OR breezy.hr '
