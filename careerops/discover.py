@@ -65,6 +65,7 @@ def fetch(board: str, slug: str) -> list:
             })
     elif board == "ashby":
         for j in data.get("jobs", []):
+            cmin, cmax = _ashby_comp(j)
             out.append({
                 "title": j.get("title"),
                 "location": j.get("location"),
@@ -72,6 +73,7 @@ def fetch(board: str, slug: str) -> list:
                 "jd_text": _strip_html(j.get("descriptionPlain") or j.get("descriptionHtml") or ""),
                 "external_id": str(j.get("id")),
                 "posted_at": (j.get("publishedAt") or "")[:19],
+                "comp_min": cmin, "comp_max": cmax,
             })
     elif board == "lever":
         for j in data:
@@ -84,6 +86,31 @@ def fetch(board: str, slug: str) -> list:
                 "external_id": str(j.get("id")),
             })
     return [o for o in out if o.get("title")]
+
+
+def _ashby_comp(j: dict):
+    """Ashby publishes the band as structured JSON, not as prose in the description.
+
+    Headway's "Revenue Strategy & Operations Manager (Insights & AI)" pays $121.6K-$190K,
+    and the API said so in compensation.compensationTiers. The parser read only the
+    description, which never mentions pay, so comp_max stayed NULL. The comp gate is
+    written to let unknown pay through rather than discard a role over a parsing gap, so
+    a role paying well under the floor scored 83 on fit alone and sat in Do next.
+    """
+    lo = hi = None
+    comp = j.get("compensation") or {}
+    for tier in (comp.get("compensationTiers") or []):
+        for c in (tier.get("components") or []):
+            if (c.get("compensationType") != "Salary"
+                    or (c.get("currencyCode") or "USD") != "USD"):
+                continue
+            a, b = c.get("minValue"), c.get("maxValue")
+            # An hourly or monthly band is not a floor comparison; skip rather than guess.
+            if (c.get("interval") or "1 YEAR") != "1 YEAR":
+                continue
+            if a: lo = a if lo is None else min(lo, a)
+            if b: hi = b if hi is None else max(hi, b)
+    return (int(lo) if lo else None, int(hi) if hi else None)
 
 
 SALARY_CONTEXT = re.compile(
@@ -235,6 +262,9 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             # to decide whether a role outside the home market is worth moving for.
             jd = j.get("jd_text") or ""
             cmin, cmax = extract_comp(jd)
+            # The board's structured band beats anything guessed out of the prose.
+            cmin = j.get("comp_min") or cmin
+            cmax = j.get("comp_max") or cmax
             if not matches(j, titles, locations, excludes, relocation, cmax, cmin):
                 continue
             # Only filter when comp was actually parsed; unknown never disqualifies.
@@ -249,6 +279,10 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             if existing:
                 conn.execute("UPDATE roles SET posted_at = COALESCE(?, posted_at) WHERE id=?",
                              (j.get("posted_at"), existing["id"]))
+                if cmin or cmax:
+                    conn.execute("""UPDATE roles SET comp_min=COALESCE(comp_min,?),
+                                    comp_max=COALESCE(comp_max,?) WHERE id=?""",
+                                 (cmin, cmax, existing["id"]))
                 if existing["jd_hash"] != h:
                     conn.execute("UPDATE roles SET jd_text=?, jd_hash=?, url=?, location=? WHERE id=?",
                                  (jd, h, j.get("url"), j.get("location"), existing["id"]))
