@@ -181,9 +181,21 @@ def _kw(kw: str):
 def matches(job: dict, titles: Iterable[str], locations: Iterable[str],
             excludes: Iterable[str] = (), relocation: "Optional[dict]" = None,
             comp_max: "Optional[int]" = None,
-            comp_min: "Optional[int]" = None) -> bool:
+            comp_min: "Optional[int]" = None,
+            exclude_domains: Iterable[str] = ()) -> bool:
     t = (job.get("title") or "").lower()
+    # Hard excludes describe the job itself: an analyst role is junior wherever the word
+    # sits in the title, so these reject outright.
     if any(x.lower() in t for x in excludes):
+        return False
+    # Domain excludes describe subject matter, and a title is conventionally
+    # "Role, Organisation". Matching them against the whole string discarded
+    # "Chief of Staff, Security Customer Engineering", a $211K-$290.5K remote Chief of
+    # Staff role, because the org it supports is called Security. The domain qualifies
+    # the job only when it sits in the role itself, before the comma: "Security Program
+    # Manager" is still excluded, "Chief of Staff, Security ..." is not.
+    head = t.split(",")[0]
+    if any(x.lower() in head for x in (exclude_domains or ())):
         return False
     if not any(_kw(k).search(t) for k in titles):
         return False
@@ -265,7 +277,8 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             # The board's structured band beats anything guessed out of the prose.
             cmin = j.get("comp_min") or cmin
             cmax = j.get("comp_max") or cmax
-            if not matches(j, titles, locations, excludes, relocation, cmax, cmin):
+            if not matches(j, titles, locations, excludes, relocation, cmax, cmin,
+                           exclude_domains):
                 continue
             # Only filter when comp was actually parsed; unknown never disqualifies.
             if comp_floor and cmax and cmax < comp_floor:
