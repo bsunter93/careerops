@@ -1,6 +1,6 @@
 import sys, pathlib, unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from careerops.classify import classify, _clean_role, _clean_company
+from careerops.classify import classify, _clean_role, _clean_company, role_from_body
 from careerops import db
 
 class TestClassify(unittest.TestCase):
@@ -491,3 +491,29 @@ class TestHardWrappedAndBoilerplate(unittest.TestCase):
         c = classify("Next step: online assessment", "no-reply@us.greenhouse-mail.io",
                      "Please complete the online assessment by Friday.")
         self.assertEqual(c.event_type, "assessment")
+
+
+class RoleFromBodyProseGuard(unittest.TestCase):
+    """A title names a job. Prose that reaches _clean_role intact must not become one."""
+
+    def test_prose_is_not_a_title(self):
+        # Both of these cleaned fine, sat under the 12-word cap, and became role rows.
+        for body in [
+            "Thank you for your interest in joining Cloudflare and the time you invested "
+            "in your application.",
+            "Our qubits can occupy multiple states at once, which is what makes the "
+            "machine work.",
+            "We appreciate your candidacy for the position and will be in touch.",
+        ]:
+            self.assertIsNone(role_from_body(body), body[:40])
+
+    def test_real_titles_still_parse(self):
+        cases = [
+            ("Thank you for applying to the Senior Program Manager role.", "Program Manager"),
+            ("your application for the position of Business Operations Manager", "Business Operations"),
+            ("We received your application for Chief of Staff.", "Chief of Staff"),
+        ]
+        for body, expect in cases:
+            got = role_from_body(body)
+            self.assertIsNotNone(got, body)
+            self.assertIn(expect.split()[-1].lower(), got.lower(), f"{body} -> {got}")

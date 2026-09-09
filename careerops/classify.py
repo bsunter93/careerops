@@ -205,6 +205,25 @@ ROLE_JUNK = re.compile(r"^(a|an|this|that|any|your|our|the|open|new|same|followi
 SENTENCE_BREAK = re.compile(r"(?<=\w{4})\.\s+(?=[A-Z])")   # "Services. We" breaks; "Sr. Program" does not
 
 
+# A title names a job; prose that survives the patterns above does not. Both of these
+# cleaned fine and sat under the 12-word cap, and became role rows: "multiple states at
+# once" (from quantum-computing copy) and "joining Cloudflare and the time you invested
+# in your application" (from rejection boilerplate). Requiring one role or function noun
+# rejects 26 of 481 titles in the corpus, of which exactly one is a real title.
+#
+# Returning None sends the event to review_queue via the missing-role path, which is the
+# house rule: below the confidence floor or missing a role, a human looks. Never guess.
+ROLE_NOUN = re.compile(
+    r"\b(manager|mgr|director|lead|leader|principal|staff|head|chief|officer|vp|president|"
+    r"analyst|engineer|specialist|coordinator|architect|strategist|consultant|associate|"
+    r"scientist|designer|developer|administrator|technician|advisor|adviser|counsel|"
+    r"partner|partnerships|recruiter|controller|accountant|planner|producer|editor|"
+    r"operations|ops|strategy|strategic|program|programme|programs|projects|product|"
+    r"marketing|sales|finance|revenue|data|business|technical|solutions|success|intern|"
+    r"fellow|apprentice|generalist|governance|planning|excellence|enablement|integration)\b",
+    re.I)
+
+
 def role_from_body(body: str) -> Optional[str]:
     """Pull a job title out of an ack body. Deterministic; no model call."""
     if not body:
@@ -222,6 +241,8 @@ def role_from_body(body: str) -> Optional[str]:
         # word cap, so validating the raw capture throws away real matches.
         r = _clean_role(r)
         if not r or ROLE_JUNK.match(r):
+            continue
+        if not ROLE_NOUN.search(r):        # prose, not a title: let a human look
             continue
         return r
     return None

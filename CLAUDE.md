@@ -131,6 +131,16 @@ good titles before the cleaner could strip trailing city lists and req ids. When
 looks low, scan bodies for role-like text that fails to parse rather than fixing one
 company at a time.
 
+**A title names a job; prose that survives the role patterns does not.** Two bodies cleaned
+fine, sat under the 12-word cap in `_clean_role`, and became role rows: "multiple states at
+once", from quantum-computing copy, and "joining Cloudflare and the time you invested in your
+application", from rejection boilerplate. `ROLE_NOUN` now requires one role or function noun
+in the cleaned title. Measured against the corpus it rejects 25 of 481 distinct titles and
+loses no real one: twelve are property-listing notifications ("467 Luther Dr has been opened")
+that had become job applications, eight are company names sitting in the title column, and the
+rest are sentence fragments. Rejecting returns None, which routes the event to `review_queue`
+through the missing-role path rather than discarding it.
+
 **Store the body correctly or none of the above works.** Strip `<style>`/`<script>`
 BEFORE tags: an Amazon `@font-face` block is ~2000 chars and filled the whole stored
 body, so 81 events held CSS instead of text. `sync --refetch` repairs them.
