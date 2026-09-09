@@ -102,7 +102,7 @@ def collect(conn) -> dict:
             a["fit"] = None
         a.pop("fit_reasoning", None)
 
-    POS = ("in_process", "assessment", "interview", "offer")
+    POS = ("assessment", "interview", "offer")
     real = [a for a in apps if a["status"] != "prospect"]
     responded = [a for a in real if a["status"] != "applied"]
 
@@ -113,7 +113,7 @@ def collect(conn) -> dict:
     adv_ids = {r["application_id"] for r in conn.execute(
         """SELECT DISTINCT application_id FROM events
            WHERE application_id IS NOT NULL
-             AND type IN ('interview_invite','assessment','offer','recruiter_outreach')""")}
+             AND type IN ('interview_invite','assessment','offer')""")}
     itv_ids = {r["application_id"] for r in conn.execute(
         """SELECT DISTINCT application_id FROM events
            WHERE application_id IS NOT NULL

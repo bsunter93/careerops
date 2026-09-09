@@ -84,11 +84,14 @@ def cmd_reclassify(a):
 
 
 def cmd_resolve(a):
-    from .resolve import merge_companies, dedupe_roles, drain, drop_noise_only
+    from .resolve import (merge_companies, dedupe_roles, drain, drop_noise_only,
+                          demote_outreach_only)
     conn = db.connect(a.db)
     m = merge_companies(conn); d = dedupe_roles(conn); g = drop_noise_only(conn)
+    o = demote_outreach_only(conn)
     print(f"companies: renamed {m['renamed']}, merged {m['merged']}; "
-          f"duplicate roles folded {d}; noise-only applications dropped {g}")
+          f"duplicate roles folded {d}; noise-only applications dropped {g}; "
+          f"outreach-only applications folded {o['folded']}, released {o['released']}")
     if not a.clean_only:
         s = drain(conn, limit=a.limit)
         print("  ".join(f"{k}={v}" for k, v in s.items()))

@@ -511,6 +511,56 @@ def merge_same_day(conn, progress=print) -> int:
     return merged
 
 
+def demote_outreach_only(conn) -> dict:
+    """Retroactively apply the rule that inbound outreach cannot create an application.
+
+    Making the rule apply only to new mail would leave every row already built from a
+    recruiter email standing, which is how company aliases and comp bands behaved before
+    today. Two "A Googler recently referred you!" notes had each created a second row
+    beside an application already tracked, and one of them reported in_process over a
+    role Google had already rejected.
+
+    An application whose entire event history is outreach is not evidence of a
+    submission. Fold it into a compatible application at the same company if one exists;
+    otherwise release the events and drop the row. Events are never deleted.
+    """
+    stats = {"folded": 0, "released": 0}
+    rows = conn.execute("""SELECT a.id, a.role_id, r.title, r.company_id, c.name
+                           FROM applications a
+                           JOIN roles r ON r.id = a.role_id
+                           JOIN companies c ON c.id = r.company_id
+                           WHERE a.status != 'prospect'
+                             AND EXISTS (SELECT 1 FROM events e
+                                         WHERE e.application_id = a.id
+                                           AND e.type = 'recruiter_outreach')
+                             AND NOT EXISTS (SELECT 1 FROM events e
+                                             WHERE e.application_id = a.id
+                                               AND e.type != 'recruiter_outreach')""").fetchall()
+    for r in rows:
+        target = None
+        for cand in conn.execute(
+                """SELECT a.id, ro.title FROM applications a
+                   JOIN roles ro ON ro.id = a.role_id
+                   WHERE ro.company_id = ? AND a.id != ? AND a.status != 'prospect'
+                   ORDER BY a.status IN ('rejected','withdrawn'),
+                            COALESCE(a.submitted_at, a.applied_on) DESC""",
+                (r["company_id"], r["id"])).fetchall():
+            if _compatible(r["title"] or "", cand["title"] or "", r["name"] or ""):
+                target = cand["id"]
+                break
+        if target:
+            conn.execute("UPDATE events SET application_id=? WHERE application_id=?",
+                         (target, r["id"]))
+            stats["folded"] += 1
+        else:
+            conn.execute("UPDATE events SET application_id=NULL WHERE application_id=?",
+                         (r["id"],))
+            stats["released"] += 1
+        conn.execute("DELETE FROM applications WHERE id=?", (r["id"],))
+    conn.commit()
+    return stats
+
+
 def merge_orphan_outcomes(conn, window_days: int = 120, progress=print) -> int:
     """An application holding only an outcome (rejection, interview) and no ack is the
     tail of an earlier submission to the same role, not a separate application."""

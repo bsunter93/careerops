@@ -7,7 +7,7 @@ import base64, os, pathlib, random, re, time
 from typing import Optional
 
 from . import db
-from .classify import classify, creates_application
+from .classify import classify, creates_application, ATTACH_ONLY_EVENTS
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -111,6 +111,35 @@ def _retry(fn, *, tries: int = 6, base: float = 2.0):
             print(f"  rate limited; backing off {wait:.1f}s", flush=True)
             time.sleep(wait)
     return None
+
+
+def _attach_only(conn, company: str, role: "Optional[str]" = None):
+    """Best existing application at this company for an inbound message, or None.
+
+    Scoped to live applications first so outreach does not revive a closed loop, and
+    title-compatible ones first so a referral note about one req does not land on
+    another. Deliberately returns None rather than guessing: an unattached event is
+    recoverable, a wrongly attached one silently rewrites an application's history.
+    """
+    from .resolve import _compatible
+    cid = conn.execute("SELECT id FROM companies WHERE name = ? COLLATE NOCASE",
+                       (company,)).fetchone()
+    if not cid:
+        return None
+    rows = conn.execute("""SELECT a.id, r.title, a.status FROM applications a
+                           JOIN roles r ON r.id = a.role_id
+                           WHERE r.company_id = ? AND a.status != 'prospect'
+                           ORDER BY a.status IN ('rejected','withdrawn'),
+                                    COALESCE(a.submitted_at, a.applied_on) DESC""",
+                        (cid["id"],)).fetchall()
+    if not rows:
+        return None
+    if role:
+        for r in rows:
+            if _compatible(role, r["title"], company):
+                return r["id"]
+        return None            # named a role, matched none: do not fall back to "any"
+    return rows[0]["id"]
 
 
 def _header(payload, name) -> str:
@@ -256,6 +285,13 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
                                                       channel="gmail")
                 if not existed:
                     stats["apps"] += 1
+
+            elif c.company and c.event_type in ATTACH_ONLY_EVENTS:
+                # Attach-only: outreach joins an application the company already has,
+                # preferring one whose title is compatible, and otherwise stays unattached
+                # rather than inventing a row. An unattached event is still stored and
+                # still shows up under `careerops unassigned`, so nothing is lost.
+                app_id = _attach_only(conn, c.company, c.role)
 
             eid = db.add_event(conn, app_id, iso, c.event_type, "gmail", confidence=c.confidence,
                                external_id=ext, subject=subject, sender=sender,

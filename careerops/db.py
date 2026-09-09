@@ -41,7 +41,11 @@ def _dormant_days(conn, application_id: int) -> int:
 
 EVENT_TO_STATUS = {
     "ack": "acked",
-    "recruiter_outreach": "in_process",
+    # Rank 1, alongside ack. A recruiter writing to you is contact, not progress; only
+    # an invitation, an assessment or an offer moves an application forward. Ranking
+    # outreach at 2 reported every referral notice and every "thanks for your interest"
+    # as an advance and inflated the advance rate.
+    "recruiter_outreach": "acked",
     "assessment": "assessment",
     "interview_invite": "interview",
     "offer": "offer",

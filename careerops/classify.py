@@ -14,8 +14,15 @@ THRESHOLD = 0.60
 # creates one: a product notification from a vendor whose name happens to parse
 # (AppSheet emailing about an app called "Master Job Application Pipeline") is not
 # an application, however confidently the company resolves.
-APPLICATION_EVENTS = {"ack", "rejection", "interview_invite", "assessment",
-                      "offer", "recruiter_outreach"}
+# recruiter_outreach is deliberately absent. Inbound contact is a lead, not proof that
+# an application exists, and treating it as proof let a Chase credit-card mailer and a
+# Connecting Colorado registration notice each conjure an application. It also duplicated
+# real ones: two "A Googler recently referred you!" notes created second rows beside
+# applications already tracked, and one of those masked a rejection with in_process.
+# Outreach still attaches to an application when the company already has one; it just
+# cannot bring one into existence. See _attach_only in gmail.sync.
+APPLICATION_EVENTS = {"ack", "rejection", "interview_invite", "assessment", "offer"}
+ATTACH_ONLY_EVENTS = {"recruiter_outreach"}
 MIN_APPLICATION_CONF = 0.50
 
 
