@@ -39,3 +39,6 @@ demo.db
 demo.db-wal
 demo.db-shm
 demo-dashboard.html
+
+# The classifier corpus is real mail: subjects, senders and bodies.
+corpus/

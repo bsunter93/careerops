@@ -484,6 +484,27 @@ def cmd_analytics(a):
     print(report(db.connect(a.db)))
 
 
+def cmd_corpus(a):
+    from . import corpus
+    path = a.path or corpus.DEFAULT_PATH
+    if a.export:
+        conn = db.connect(a.db)
+        st = corpus.export(conn, path)
+        print(f"corpus {path}: {st['total']} records "
+              f"(+{st['added']} new, {st['verified']} verified)")
+    r = corpus.check(path)
+    print(f"checked {r['total']}: {r['agree']} agree, {len(r['drift'])} drift, "
+          f"{len(r['regressions'])} REGRESSIONS, {r['still_open']} known-bad still open, "
+          f"{len(r['fixed'])} fixed")
+    for lab, want, got in r["regressions"]:
+        print(f"  REGRESSION  want {want:<18} got {got:<18} {lab}")
+    for lab, want, got in r["drift"][:20]:
+        print(f"  drift       was  {want:<18} now {got:<18} {lab}")
+    for lab, want in r["fixed"]:
+        print(f"  FIXED       now  {want:<18} clear known_bad: {lab}")
+    return 1 if r["regressions"] else 0
+
+
 def cmd_doctor(a):
     import pathlib, importlib, os
     root = pathlib.Path(__file__).resolve().parent.parent
@@ -533,6 +554,10 @@ def main(argv=None):
     ev.set_defaults(fn=cmd_event)
     wy = sub.add_parser("why"); wy.add_argument("id", type=int); wy.set_defaults(fn=cmd_why)
     sub.add_parser("review").set_defaults(fn=cmd_review)
+    cp = sub.add_parser("corpus", help="frozen labelled emails; guards classifier changes")
+    cp.add_argument("--export", action="store_true", help="add new events, keep judgements")
+    cp.add_argument("--path", default=None)
+    cp.set_defaults(fn=cmd_corpus)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
     sv = sub.add_parser("serve", help="local server powering the dashboard resume buttons")
