@@ -42,7 +42,10 @@ ATS_DOMAINS = {
 
 # Aggregators/newsletters: never an application event.
 AGGREGATOR_DOMAINS = {"ladders.com", "theladders.com", "linkedin.com", "indeed.com",
-                      "ziprecruiter.com", "sourcehire.app", "dice.com", "monster.com"}
+                      "ziprecruiter.com", "sourcehire.app", "dice.com", "monster.com",
+                      # A state job board. Its registration notices open with
+                      # "reaching out to you because", same as a recruiter would.
+                      "connectingcolorado.gov"}
 
 # Personal/transactional mail. Checked against SUBJECT + SENDER only: ATS footers
 # routinely contain "subscription", "payment", "order", so body-scanning them
@@ -51,6 +54,10 @@ BLACKLIST = [
     r"\binvoice\b", r"\bbilling\b", r"\byour bill\b", r"\bstatement\b", r"\breceipt\b",
     r"\border (?:confirmation|shipped)\b", r"\bshipping\b", r"\bdelivered\b",
     r"\bflight\b", r"\bhotel\b", r"\breservation\b", r"\bgfiber\b",
+    # Chase sold a credit card with "We're reaching out about your Chase credit card",
+    # which is the recruiter_outreach pattern verbatim. Consumer-finance mail is the
+    # one category that shares recruiting's opening line.
+    r"\bcredit card\b", r"\bdebit card\b", r"\bcard ending\b",
 ]
 
 # Mail inviting you to APPLY to something is marketing, not a response to an
@@ -99,7 +106,7 @@ SUBJECT_ONLY = [
 # Subject phrases that definitively mark a plain acknowledgement. If one of these
 # matches, body text cannot promote the event to an interview.
 ACK_SUBJECT = re.compile(
-    r"(thank you for (?:your )?appl|thanks for applying|we(?:'|.)?ve received your appl|"
+    r"(thank you for (?:your )?appl|thanks? (?:you )?for applying|we(?:'|.)?ve received your appl|"
     r"application received|thank you for your interest|we received your appl)", re.I)
 
 # Order matters: strongest signal wins.
@@ -148,6 +155,13 @@ EVENT_PATTERNS = [
                            # ambiguous signal in the inbox, and a scheduling link is
                            # close to proof.
                            r"\bdates and times that work\b",
+                           # A recruiter proposing a first call writes neither "schedule
+                           # a call" nor "invitation to interview". Stripe's read
+                           # "Interview Scheduling at Stripe" over "it would be great to
+                           # set up time to chat", which scored as a bare acknowledgement
+                           # on the pleasantry that opened it.
+                           r"\binterview scheduling\b", r"\bscheduling your interview\b",
+                           r"\bset up (?:some )?time to (?:chat|talk|speak|connect|meet)\b",
                            r"\bshare (?:some )?(?:dates|times|your availability)\b",
                            r"\b\d{1,2}\s?-?\s?min(?:ute)?s?\s+(?:zoom|phone|video|intro|initial)?\s*(?:call|chat|meeting|conversation)\b",
                            r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)",
@@ -160,7 +174,10 @@ EVENT_PATTERNS = [
                            r"\bwould you be (?:open|interested|available)\b"]),
     ("ack",               [r"\bwe(?:'|.)?ve received your application\b", r"\bapplication received\b",
                            r"\bthank you for (?:your )?appl", r"\bthanks for applying\b",
-                           r"\bthank you for your interest\b", r"\bconfirmation of\b",
+                           # "Thanks for your interest" is the same sentence as "Thank you for your
+                           # interest" and matched neither spelling before, which left a Hims & Hers
+                           # acknowledgement with no ack evidence at all.
+                           r"\bthanks? (?:you )?for your interest\b", r"\bconfirmation of\b",
                            r"\breceived your application\b", r"\byour application (?:for|to)\b"]),
 ]
 
@@ -496,40 +513,121 @@ def strip_boilerplate(body: str) -> str:
     return body[:m.start()] if (m and m.start() >= BOILERPLATE_FLOOR) else (body or "")
 
 
-def _event_type(subject: str, body: str = "") -> "tuple":
-    """Return (type, literal matched text). Strong patterns may match subject or
-    body; weak ones only the subject. A definitive ack subject blocks promotion."""
+# ── layer 3: evidence scoring ────────────────────────────────────────────────
+# First-match-wins treated a bare word in a body as the same evidence as a phrase in a
+# subject line. "Thanks for your interest in Hims & Hers" lost to recruiter_outreach
+# because the word "recruiter" appeared somewhere below the fold, and outreach is
+# checked first. Score every candidate instead, weight the evidence by where it appeared
+# and how far that location can be trusted for that verdict, and require the winner to
+# beat the runner-up by a margin. Anything closer is a guess, and a guess belongs in the
+# review queue rather than in an application's history.
+BODY_TRUST = {
+    "rejection": 1.00, "offer": 1.00,        # a verdict carries wherever it appears
+    "ack": 0.75, "interview_invite": 0.75, "assessment": 0.75,
+    # Referral-routing mail carries its only evidence in the body ("A Googler recently
+    # referred you!" names nothing in its subject), so this has to clear MIN_VERDICT on
+    # its own. What disqualifies Chase is the corroboration test below, not this weight.
+    "recruiter_outreach": 0.55,
+}
+SUBJECT_WEIGHT = 1.00
+SUBJECT_ONLY_WEIGHT = 0.45                   # weak fragments, subject line only
+CORROBORATION_BONUS = 0.20                   # said in the subject and again in the body
+ACK_SUBJECT_DAMPING = 0.40                   # an ack subject cannot be promoted by a body
+MIN_VERDICT = 0.50
+MIN_MARGIN = 0.15
+
+# A second, independent sign the message concerns employment at all. "Reaching out
+# about" is ordinary English, and Chase used it to sell a credit card. An outreach
+# verdict resting on one generic phrase, with nothing else job-related anywhere in the
+# message, is not a verdict.
+RECRUITING_CONTEXT = re.compile(
+    r"\b(roles?|positions?|opportunit(?:y|ies)|opening|candidate|hiring|recruit\w*|"
+    r"r\u00e9sum\u00e9|resume|cv|jobs?|careers?|interview|compensation|salary|"
+    r"headhunter|talent)\b", re.I)
+
+# Ties fall back to the old precedence: offer beats rejection beats invite, and so on
+# down EVENT_PATTERNS. Small enough never to overturn real evidence.
+_ORDER = {t: (len(EVENT_PATTERNS) - i) * 0.001 for i, (t, _) in enumerate(EVENT_PATTERNS)}
+
+
+def score_types(subject: str, body: str = "") -> dict:
+    """Every candidate event type with the weight of the evidence behind it."""
     subj_low = (subject or "").lower()
-    # Hypotheticals are stripped for every event type, not just outcomes. The rule was
-    # written for "if you are not selected" and applied only to rejections, which left
-    # the mirror image live: "if you were asked to complete an online assessment" turned
-    # a referral-routing email into an assessment, and a promotion invented out of a
-    # conditional is the same error as a rejection invented out of one. It just flatters
-    # instead of stinging, so it survives longer before anyone questions it.
     both_low = _strip_conditionals(f"{subject} {body}".lower())
-    outcome_low = both_low
     ack_subject = bool(ACK_SUBJECT.search(subject or ""))
+    scores, lits = {}, {}
 
     for etype, pats in EVENT_PATTERNS:
-        # Rejections and offers are trustworthy in a body. Promotion past "acked" is not:
-        # ATS acks routinely say "we will be reaching out to candidates" and "a recruiter
-        # will follow up", which promoted five definitive acknowledgements to in_process
-        # and inflated the advance rate.
-        scope = (subj_low if (ack_subject and etype in ("interview_invite", "assessment",
-                                                        "recruiter_outreach"))
-                 else outcome_low if etype in ("rejection", "offer")
-                 else both_low)
+        best, lit, in_subj, in_body = 0.0, None, False, False
+        damp = (ACK_SUBJECT_DAMPING
+                if ack_subject and etype in ("interview_invite", "assessment",
+                                             "recruiter_outreach") else 1.0)
         for p in pats:
-            m = re.search(p, scope)
+            m = re.search(p, subj_low)
             if m:
-                return etype, m.group(0).strip()
+                in_subj = True
+                w = SUBJECT_WEIGHT * (damp if etype == "recruiter_outreach" else 1.0)
+                if w > best:
+                    best, lit = w, m.group(0).strip()
+            m = re.search(p, both_low)
+            if m:
+                in_body = True
+                w = BODY_TRUST.get(etype, 0.60) * damp
+                if w > best:
+                    best, lit = w, m.group(0).strip()
+        if best:
+            if in_subj and in_body:
+                best = min(1.0, best + CORROBORATION_BONUS)
+            scores[etype], lits[etype] = best, lit
 
+    if "recruiter_outreach" in scores:
+        # Look for the corroborating signal anywhere except the phrase that fired.
+        rest = both_low.replace((lits.get("recruiter_outreach") or "").lower(), " ", 1)
+        if not RECRUITING_CONTEXT.search(rest):
+            scores["recruiter_outreach"] *= 0.40
+    return {t: (v + _ORDER.get(t, 0.0), lits[t]) for t, v in scores.items()}
+
+
+def _subject_only(subject: str) -> "tuple":
+    subj_low = (subject or "").lower()
     for etype, pats in SUBJECT_ONLY:
         for p in pats:
             m = re.search(p, subj_low)
             if m:
-                return etype, m.group(0).strip()
-    return "unresolved", None
+                return etype, m.group(0).strip(), SUBJECT_ONLY_WEIGHT
+    return "unresolved", None, 0.0
+
+
+def _event_type(subject: str, body: str = "") -> "tuple":
+    """Return (type, literal matched text, strength).
+
+    Strength is the winner's margin over the runner-up, so it reports how separable the
+    verdict actually was. It used to be a per-rule constant, which is why a Chase
+    mailer, a state job-board notice and a genuine acknowledgement all scored 0.55.
+    """
+    scored = score_types(subject, body)
+    if not scored:
+        return _subject_only(subject)
+    ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
+    top, (tv, lit) = ranked[0]
+    # ack is not a rival hypothesis. Nearly every message from an employer acknowledges
+    # an application somewhere in it, and a rejection is an acknowledgement plus a
+    # verdict. Scoring it as a competitor made 90 correct rejections unresolved, because
+    # "Thank you for your interest" sat two hundredths below "we will not be moving
+    # forward". Only verdicts that genuinely exclude one another need separating.
+    rivals = [v for t, (v, _) in ranked[1:] if not (top != "ack" and t == "ack")]
+    second = rivals[0] if rivals else 0.0
+    if tv < MIN_VERDICT or (tv - second) < MIN_MARGIN:
+        # SUBJECT_ONLY is a fallback tier, not a rival. Its fragments are weak by
+        # construction and were never meant to compete: scoring them at 0.45 against a
+        # 0.50 floor turned thirty real calendar invitations ("Invitation: Interview
+        # with Included Health") into unresolved. Reach for them only when the scored
+        # evidence produced no separable verdict, which is what the old order did.
+        etype, elit = _subject_only(subject)[:2]
+        if etype != "unresolved":
+            return etype, elit, SUBJECT_ONLY_WEIGHT
+        return "unresolved", lit, round(max(0.0, tv - second), 2)
+    return top, lit, round(min(1.0, tv), 2)
 
 
 def classify(subject: str, sender: str = "", body: str = "") -> Classification:
@@ -573,7 +671,7 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
         c.reasons.append("aggregator:" + dom)
         return c
 
-    etype, trigger = _event_type(subject, strip_boilerplate(body or ""))
+    etype, trigger, _sep = _event_type(subject, strip_boilerplate(body or ""))
     c.event_type = etype
     c.trigger = trigger
     if trigger:
