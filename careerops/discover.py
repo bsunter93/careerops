@@ -188,16 +188,16 @@ def matches(job: dict, titles: Iterable[str], locations: Iterable[str],
     # sits in the title, so these reject outright.
     if any(x.lower() in t for x in excludes):
         return False
-    # Domain excludes describe subject matter, and a title is conventionally
-    # "Role, Organisation". Matching them against the whole string discarded
-    # "Chief of Staff, Security Customer Engineering", a $211K-$290.5K remote Chief of
-    # Staff role, because the org it supports is called Security. The domain qualifies
-    # the job only when it sits in the role itself, before the comma: "Security Program
-    # Manager" is still excluded, "Chief of Staff, Security ..." is not.
-    head = t.split(",")[0]
-    if any(x.lower() in head for x in (exclude_domains or ())):
-        return False
-    if not any(_kw(k).search(t) for k in titles):
+    # The role supersedes the domain. `titles` is already a whitelist of jobs worth
+    # taking, so a subject-matter word has no business vetoing a match against it:
+    # "Chief of Staff, Security Customer Engineering" is a chief of staff role whatever
+    # the org is called, and excluding it on "security" threw away a remote
+    # $211,000-$290,500 posting. Domain terms are a backstop for titles that match
+    # nothing on the whitelist, not an override of one that does.
+    if titles:
+        if not any(_kw(k).search(t) for k in titles):
+            return False
+    elif any(x.lower() in t for x in (exclude_domains or ())):
         return False
     if not locations:
         return True
