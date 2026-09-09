@@ -58,7 +58,8 @@ BLACKLIST = [
     # which is the recruiter_outreach pattern verbatim. Consumer-finance mail is the
     # one category that shares recruiting's opening line.
     r"\bcredit card\b", r"\bdebit card\b", r"\bcard ending\b",
-    # A rental listing mailed "your application ... has been declined", which is a rental application.
+    # A rental listing mails "your application has been declined" in the same words an
+    # employer would.
     # A street address where a job title belongs is the tell, and it generalises.
     r"\b\d{1,6}\s+[\w.'-]+(?:\s+[\w.'-]+)?\s+"
     r"(?:dr|drive|st|street|ave|avenue|rd|road|ln|lane|ct|court|blvd|boulevard|way|pl|place)\b",
