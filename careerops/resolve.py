@@ -66,6 +66,13 @@ def merge_companies(conn, dry=False) -> dict:
     canon = {}
     for r in rows:
         new = normalize_company(r["name"])
+        # Aliases were applied only in get_or_create_company, so they prevented the next
+        # duplicate but never healed the one already stored. Headway's recruiter mailed
+        # from findheadway.com, which had created a "Findheadway" row before the alias
+        # existed, and the alias alone could not fold it. Apply the map here too, where
+        # it is retroactive and idempotent.
+        if new is not None:
+            new = db._aliases().get(new.lower(), new)
         if new is None:
             stats["orphaned"] += 1
             continue

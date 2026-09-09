@@ -132,7 +132,19 @@ EVENT_PATTERNS = [
     ("rejection",         REJECT_STRONG + REJECT_WEAK),
     ("interview_invite",  [r"\binvitation to interview\b", r"\binterview invitation\b",
                            r"\bschedule (?:a|your) (?:call|interview|chat)\b",
-                           r"\binterview (?:update|availability|request)\b"]),
+                           r"\binterview (?:update|availability|request)\b",
+                           # Headway's invite read "share some dates and times that work
+                           # for you for a 30 min zoom call" and linked an Ashby
+                           # scheduler. Nothing above matched, so it fell through to ack
+                           # on the pleasantry "your application for" and was filed as an
+                           # acknowledgement. An invitation to book time is the least
+                           # ambiguous signal in the inbox, and a scheduling link is
+                           # close to proof.
+                           r"\bdates and times that work\b",
+                           r"\bshare (?:some )?(?:dates|times|your availability)\b",
+                           r"\b\d{1,2}\s?-?\s?min(?:ute)?s?\s+(?:zoom|phone|video|intro|initial)?\s*(?:call|chat|meeting|conversation)\b",
+                           r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)",
+                           r"\b(?:love|like) to (?:connect|chat|speak|talk)\b"]),
     ("assessment",        [r"\bonline assessment\b", r"\btake[- ]home\b", r"\bcoding challenge\b",
                            r"\bskills assessment\b", r"\bcomplete (?:an|the) assessment\b"]),
     ("recruiter_outreach",[r"\bsharing your resume\b", r"\brecruiter\b",

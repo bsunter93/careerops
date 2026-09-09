@@ -43,7 +43,19 @@ DEFAULT_QUERY = (
     # referred you!" came from xwf.google.com and failed both arms, so a referral being
     # walked to a recruiter went unrecorded. Assessment and next-step mail is the same
     # shape, arriving before the vocabulary of "application" shows up.
-    'OR referred OR referral OR "next steps" OR assessment OR "your resume") '
+    'OR referred OR referral OR "next steps" OR assessment OR "your resume" '
+    # A live interview invitation from Headway read "Hello From Headway! We'd Love to
+    # Chat" and came from the company's own domain, so it failed both arms and was never
+    # ingested. Outreach that opens a conversation does not use application vocabulary
+    # at all, so the subject arm needs the vocabulary of a first meeting.
+    'OR chat OR connect OR connecting OR opportunity OR role OR "reaching out" '
+    'OR "hello from" OR "love to" OR conversation OR "speak with") '
+    # Third arm, unqualified so it searches the body too. A company mailing from its own
+    # domain matches no vendor, and its subject may say nothing, but the body still names
+    # the application or links to the scheduler.
+    'OR "reviewed your application" OR "your application for" OR "interest in" '
+    'OR ashbyhq.com OR greenhouse.io OR calendly.com OR "schedule some time" '
+    'OR "find a time" OR "book a time" OR "hiring team" OR "recruiting team" '
     'OR from:(greenhouse-mail.io OR greenhouse.io OR myworkday.com OR workday.com '
     'OR ashbyhq.com OR lever.co OR smartrecruiters.com OR icims.com OR jobvite.com '
     'OR workablemail.com OR gem.com OR taleo.net OR avature.net OR breezy.hr '
