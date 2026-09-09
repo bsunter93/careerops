@@ -72,7 +72,11 @@ def cmd_reclassify(a):
     changed = {}
     for r in rows:
         c = classify(r["subject"] or "", r["sender"] or "", r["body"] or "")
-        if c.event_type != r["type"] and c.event_type != "unresolved":
+        # Demotion to unresolved was excluded, so a verdict could be corrected but never
+        # retracted. Fortune's newsletter "Next steps after SCOTUS strikes down tariffs"
+        # stayed an interview_invite for 198 days after the rule that caught it was
+        # fixed, because reclassify was not allowed to take it back.
+        if c.event_type != r["type"]:
             conn.execute("UPDATE events SET type=?, confidence=? WHERE id=?",
                          (c.event_type, c.confidence, r["id"]))
             changed[(r["type"], c.event_type)] = changed.get((r["type"], c.event_type), 0) + 1

@@ -84,6 +84,14 @@ NOISE_PATTERNS = [
     r"\byour feedback matters\b", r"\bapplication experience survey\b",
     r"\bprovide feedback on your application\b", r"\bplease rate\b",
     r"\bcomplete your (?:form|profile)\b",
+    # Mail about mail. A bounce for a screening request is not a screening request, and
+    # an out-of-office reply is not a reply. "Undeliverable: EXT: Re: Screening
+    # Availability" became an interview invitation on the word "availability".
+    r"^undeliverable\b", r"^out of office\b", r"^automatic reply\b",
+    r"\bdelivery status notification\b", r"^auto(?:matic)?[- ]reply\b",
+    # A cancellation is not an invitation. The invitation it cancels is already an
+    # event of its own, so counting this one too would book the interview twice.
+    r"^cancell?ed(?: event)?:", r"^declined:", r"\bhas been cancell?ed and removed\b",
 ]
 
 # Contract body-shops and job-board drip mail. These use genuine interview language
@@ -616,12 +624,23 @@ def score_types(subject: str, body: str = "") -> dict:
     return {t: (v + _ORDER.get(t, 0.0), lits[t]) for t, v in scores.items()}
 
 
-def _subject_only(subject: str) -> "tuple":
+def _subject_only(subject: str, body: str = "") -> "tuple":
+    """Weak subject fragments, trusted only if the message concerns employment at all.
+
+    "Next steps" and "availability" are ordinary English. Fortune's newsletter "Next
+    steps after SCOTUS strikes down tariffs" became an interview invitation on the first
+    and sat in the funnel for 198 days; a Walmart bounce, "Undeliverable: EXT: Re:
+    Screening Availability", became one on the second. Neither message contains a single
+    employment word. Requiring one costs nothing on real mail, which is saturated with
+    them, and removes the whole class.
+    """
     subj_low = (subject or "").lower()
     for etype, pats in SUBJECT_ONLY:
         for p in pats:
             m = re.search(p, subj_low)
             if m:
+                if not RECRUITING_CONTEXT.search(f"{subject} {body}"):
+                    return "unresolved", None, 0.0
                 return etype, m.group(0).strip(), SUBJECT_ONLY_WEIGHT
     return "unresolved", None, 0.0
 
@@ -635,7 +654,7 @@ def _event_type(subject: str, body: str = "") -> "tuple":
     """
     scored = score_types(subject, body)
     if not scored:
-        return _subject_only(subject)
+        return _subject_only(subject, body)
     ranked = sorted(scored.items(), key=lambda kv: -kv[1][0])
     top, (tv, lit) = ranked[0]
     # ack is not a rival hypothesis. Nearly every message from an employer acknowledges
@@ -651,7 +670,7 @@ def _event_type(subject: str, body: str = "") -> "tuple":
         # 0.50 floor turned thirty real calendar invitations ("Invitation: Interview
         # with Included Health") into unresolved. Reach for them only when the scored
         # evidence produced no separable verdict, which is what the old order did.
-        etype, elit = _subject_only(subject)[:2]
+        etype, elit = _subject_only(subject, body)[:2]
         if etype != "unresolved":
             return etype, elit, SUBJECT_ONLY_WEIGHT
         return "unresolved", lit, round(max(0.0, tv - second), 2)
