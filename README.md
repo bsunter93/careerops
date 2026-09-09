@@ -102,10 +102,18 @@ python3 -m careerops.cli resolve              # merge duplicates, drain the revi
 python3 -m careerops.cli refresh --open      # sync, resolve, discover, score, render
 python3 -m careerops.cli dashboard --open
 python3 -m careerops.cli demo --open          # synthetic data, separate database
+python3 -m careerops.cli corpus               # re-check the classifier against real mail
+python3 -m careerops.cli snooze 51 --days 30  # hide a prospect from Do next
+python3 -m careerops.cli serve                # powers the dashboard buttons
 ```
 
 `why <id>` explains any single application. `review` shows what the classifier refused to
 guess at. `analytics` prints traction by company, channel and referral.
+
+`serve` runs a small localhost server so the dashboard's own buttons work: generating a
+tailored resume, and snoozing a role you do not want to see for a month. Both fall back
+to copying the equivalent command when it is not running, and say so rather than failing
+quietly.
 
 ## Design notes
 
@@ -115,7 +123,7 @@ silently became "applied", the ATS boilerplate that manufactured 22 interviews o
 the Gmail query that dropped a year of one company's mail because its subject line said
 "Follow-Up" instead of "application".
 
-Four rules do most of the work:
+Five rules do most of the work:
 
 - **Status is derived, never written.** A system that cannot recompute its own conclusions
   cannot be corrected.
@@ -125,6 +133,15 @@ Four rules do most of the work:
   genuine rejections, because rejection language lives in the body, not the subject.
 - **Reference data never writes state.** The employer portal and public sentiment inform
   the human. They never move a status or a score.
+- **A fix that reaches only new data leaves stored data wrong.** Four separate rules were
+  written to prevent the next bad row while leaving every existing one standing. Corrective
+  rules now ship with their retroactive half and run on every `resolve`.
+
+The classifier scores every candidate verdict and takes the winner only if it beats the
+runner-up by a margin; anything closer is `unresolved` and goes to review. Weighting
+evidence by *where* it appeared matters more than the patterns themselves: a bare word in
+a body is not a phrase in a subject line, and treating them alike is what filed
+acknowledgements as recruiter outreach and newsletters as interviews.
 
 ## Limits
 
@@ -137,11 +154,21 @@ Four rules do most of the work:
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v      # state machine
+python3 -m careerops.cli corpus               # classifier, against real mail
 ```
 
-28 tests, mostly guarding the state machine and the classifier against regressions that
-have already happened once.
+The unit tests guard the state machine. The corpus is a frozen set of real messages with
+a recorded judgement for each, and it guards the language: change a pattern and it tells
+you in a second how many of several hundred real emails you moved, and whether any of
+them were ones a human had already ruled on.
+
+It carries three states, because freezing today's output as truth enshrines today's bugs.
+An unreviewed record reports *drift*. A reviewed one reports a **regression**. A record
+marked reviewed-but-known-wrong reports **fixed** when the classifier finally agrees with
+it, which lets the answer be written down before the code can produce it.
+
+The corpus data is real mail and stays out of the repository; only the tooling ships.
 
 ## License
 

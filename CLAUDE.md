@@ -43,6 +43,35 @@ whose sender domain parses becomes an application: AppSheet emailing about an ap
 No fabricated fit scores: no JD means no score. `fit.py` returns `None` rather than a
 number. Bad data is worse than absent data.
 
+**A fix that reaches only new data leaves stored data permanently wrong.** This shape
+recurred four times in one day and is now the first thing to check on any rule change.
+Company aliases were applied in `get_or_create_company`, so they stopped the next
+duplicate but never folded the row already stored. Comp bands were read only when a role
+was first inserted, so every existing role stayed blind. `recruiter_outreach` stopped
+creating applications, but the nine it had already created stood. And `reclassify`
+excluded transitions to `unresolved`, so a verdict could be corrected but never
+retracted, which kept a newsletter filed as an interview for 198 days after the rule
+that caught it was fixed. Every corrective rule now ships with the retroactive half:
+`resolve.demote_outreach_only()`, alias application inside `merge_companies`, comp
+backfill in the existing-role branch, and demotion allowed in `cmd_reclassify`.
+
+**Inbound outreach is a lead, not an application.** `recruiter_outreach` is deliberately
+absent from `APPLICATION_EVENTS`. It could previously create a row from nothing at
+confidence 0.55 against a 0.50 gate, which is how a Chase credit-card mailer and a state
+job-board registration notice each became applications. It also duplicated real ones: two
+"A Googler recently referred you!" notes created second rows beside applications already
+tracked, and one reported `in_process` over a requisition already rejected. Outreach now
+attaches to an application the company already has, preferring a title-compatible one via
+`gmail._attach_only`, and otherwise stays unattached and visible under `unassigned`. It
+never falls back to "any application at this company": naming a role that matches nothing
+returns `None`, because an unattached event is recoverable and a wrongly attached one
+silently rewrites history.
+
+**Contact is not advancement.** `EVENT_TO_STATUS["recruiter_outreach"]` is `acked`, rank
+1, alongside a plain acknowledgement. Only an invitation, an assessment or an offer moves
+an application forward, and the advance-rate query and `POS` agree. Ranking outreach at 2
+reported every referral notice and every "thanks for your interest" as an advance.
+
 **Ingestion is idempotent.** Events key on `external_id` (`gmail:<msgid>`). Re-running
 `sync` never duplicates. Safe to cron.
 
@@ -68,6 +97,22 @@ its subject read "Anthropic Follow-Up for [Pipeline] Product Manager, Monetizati
 (no trigger word: "follow-up" was not one) and it came from `appreview.gem.com`, which
 was not on the vendor list. Widening both arms recovered 44 events and 13 applications.
 Keep the vendor domain list ahead of the ATSes actually seen in the corpus.
+
+A live interview invitation failed both arms the same way a year later: Headway's
+recruiter wrote "Hello From Headway! We'd Love to Chat" from the company's own domain,
+which carries no application vocabulary and matches no ATS vendor. Outreach that *opens*
+a conversation does not use application language at all, so the subject arm now carries
+first-meeting vocabulary (chat, connect, opportunity, role, reaching out) and a third,
+unqualified arm reaches the body and the scheduler link. Refetching found 51 events and
+16 applications the system had never seen. The lesson generalises: the query has to cover
+mail written before the vocabulary of "application" exists.
+
+**Mail about mail is not mail.** Bounces, out-of-office replies, delivery-status
+notifications and calendar cancellations all quote the message they concern, so they
+inherit its vocabulary. "Undeliverable: EXT: Re: Screening Availability" became an
+interview invitation on the word "availability", and "Canceled event: Zoom Interview"
+counted an interview a second time in the direction of it not happening. `NOISE_PATTERNS`
+now anchors on those prefixes.
 
 **Widening the net admits contract body-shops.** They write real interview language
 ("Interview next week", "Interview Update - please confirm your work authorization")
@@ -191,6 +236,57 @@ own application ahead of its own ack. `merge_orphan_outcomes` repairs any that s
 `&nbsp;` inside plain text, which produced roles like "&nbsp;Technical Program Manager"
 and split one application into two.
 
+## Classifier: evidence scoring, not first match
+
+`score_types()` scores every candidate event type; `_event_type` takes the winner only if
+it clears a floor and beats the runner-up by a margin. First-match-wins treated a bare
+word in a body as the same evidence as a phrase in a subject line, and pattern order
+decided ties: "Thanks for your interest in Hims & Hers" was filed as
+`recruiter_outreach` because the word "recruiter" appeared below the fold and outreach is
+checked before ack.
+
+| knob | value | why |
+|---|---|---|
+| subject match | 1.00 | the strongest position a phrase can occupy |
+| body, `rejection` / `offer` | 1.00 | a verdict carries wherever it appears |
+| body, `ack` / `interview_invite` / `assessment` | 0.75 | usually true, occasionally boilerplate |
+| body, `recruiter_outreach` | 0.55 | "reaching out about" is ordinary English |
+| `REJECT_WEAK_FACTOR` | 0.55 | phrases that appear in acknowledgements too |
+| corroboration | +0.20 | said in the subject *and* the body |
+| `ACK_SUBJECT_DAMPING` | 0.40 | a definitive ack subject cannot be promoted by a body |
+| `MIN_VERDICT` / `MIN_MARGIN` | 0.50 / 0.15 | below either, the answer is `unresolved` |
+
+`verdict_strength` is now that margin. It used to be a per-rule constant, which is why a
+credit-card mailer, a job-board notice and a genuine acknowledgement all scored exactly
+0.55 and all cleared the 0.50 application gate.
+
+Two rules that look like details and are not:
+
+**`ack` is not a rival hypothesis.** Nearly every employer email acknowledges an
+application somewhere, and a rejection *is* an acknowledgement plus a verdict. Scoring it
+as a competitor made 90 correct rejections `unresolved` on two hundredths of a point. It
+is excluded from the margin unless it wins outright.
+
+**`SUBJECT_ONLY` is a fallback tier, not a competitor.** Its fragments are deliberately
+weak; scoring them at 0.45 against a 0.50 floor meant they could never win, and thirty
+real calendar invitations became `unresolved`. It is consulted only when nothing
+separable won, and only when the message contains an employment word anywhere. "Next
+steps" and "availability" are ordinary English: a newsletter headed "Next steps after
+SCOTUS strikes down tariffs" sat in the funnel as an interview for 198 days.
+
+**Weak rejection evidence is weak.** `REJECT_WEAK` phrases appear in acknowledgements as
+readily as rejections. An ack explaining that it focuses on "candidates whose backgrounds
+best align", and three that promise to keep your resume on file while describing what
+happens next, were all filed as rejections until weak evidence was scored as weak.
+Definitive phrases moved the other way: `no longer recruiting` and `not selected` state
+the outcome outright and belong in `REJECT_STRONG`.
+
+**English defeats patterns in mundane ways.** Four gaps, each costing a real rejection:
+contractions ("we won't be moving forward" defeats `\bnot\b`), the infinitive ("decided
+to not move forward" where every pattern had the gerund), the formal register ("we regret
+to inform you"), and refusals that never mention moving at all ("we are unable to offer
+you an interview"). Add the form, not the instance.
+
 ## Finding the decision maker
 
 **The reporting line is usually in the JD.** Employers publish "you will report to the
@@ -226,10 +322,27 @@ A relative scale makes 3.3/5 look like a top score.
 
 ## Discovery and filtering
 
-**Filter on domain, not title.** `technical program manager` was excluded wholesale;
-that blocked Reddit and Pinterest *monetization* TPM roles scoring 72, squarely in
-the ads/GTM background, while the real problem was `infrastructure`, `security`,
-`compute`, `machine learning`. Exclusions are domain and level, never job family.
+**The role supersedes the domain.** This rule replaces an earlier one that said the
+opposite, and the correction matters. Excluding job families was wrong: `technical
+program manager` was excluded wholesale, which blocked *monetization* TPM roles scoring
+72. But excluding domains as bare substrings was wrong in the mirror image. `titles` is
+already a whitelist of jobs worth taking, so a subject-matter word must not veto a match
+against it. "Chief of Staff, Security Customer Engineering" is a chief of staff role
+whatever the org is called, and excluding it on `security` discarded a remote
+$211,000-$290,500 posting at a company the candidate has a direct prior connection to.
+
+So there are two lists and they behave differently:
+
+- `exclude_titles` names the **job** (`analyst`, `coordinator`, `platform engineer`,
+  `site reliability`). These reject outright, wherever the word sits.
+- `exclude_domains` names the **subject** (`security`, `infrastructure`, `compute`).
+  These are a backstop for titles that match nothing on the whitelist, never an override
+  of one that does.
+
+Terms that look like domains but name a job belong in the first list; that is where
+`platform engineer`, `privacy engineer`, `embedded` and `firmware` ended up. The role
+noun was doing the real work in both directions all along. Splitting the lists took
+`excluded_title` from 2,652 to 1,497 in one run and surfaced 30 new roles.
 
 **A filter that removes rows silently is the one to test hardest.** Three of these in one
 afternoon, none of which raised an error: the dashboard looked healthy while the roles simply
@@ -253,7 +366,24 @@ Manager, AMER".** Singular and plural now both match, in either direction, via `
 Adding the missing keyword would have fixed one role; the matcher fixes the class.
 
 **Comp floor never filters on absence.** Most JDs post no range. Only a *parsed* max
-below the floor disqualifies.
+below the floor disqualifies. That tolerance is right, and it is also why a parsing gap
+disables the gate silently rather than loudly.
+
+**Read the board's own comp field before parsing prose for it.** Ashby publishes the band
+as structured JSON in `compensation.compensationTiers`, not in the description text. The
+request already carried `includeCompensation=true`, so the field was arriving and being
+thrown away, and `comp_max` stayed NULL on every Ashby role. One employer went from 0 of
+86 postings with a band to 76; across all boards the first corrected run filtered 38
+roles as `below_comp` that had been passing unexamined, several of them scoring in the
+80s on fit alone. `_ashby_comp()` takes USD annual salary components only: an hourly or
+monthly band is not a floor comparison, so it is skipped rather than guessed at.
+
+**Fit and level pull in opposite directions, and nothing corrects for it.** A
+well-written description for a role a level below the candidate matches their background
+*better*, not worse, because they have done all of it. The two highest-fit roles at one
+employer were also its two lowest-paying. `level` is NULL on every row; until something
+populates it, comp is the only counterweight, which is why the band must be read
+correctly.
 
 **Public board APIs only** (Greenhouse, Ashby, Lever). No LinkedIn/Indeed scraping:
 against their terms, brittle, and unnecessary.
@@ -555,6 +685,35 @@ square track.
 - Claims must survive a follow-up question. Prefer "1.56 to 0.46 FTE per 100 cases"
   over "cut overhead 70%".
 
+## The corpus: 886 labelled emails
+
+`careerops corpus [--export]` re-classifies a frozen set of real messages from their
+stored text and diffs the result against a recorded judgement. Every classifier change
+before this was checked by hand, one email at a time, which does not scale and cannot
+catch what was already wrong.
+
+Three states, because freezing the classifier's output as truth enshrines its bugs:
+
+| state | meaning | a mismatch is |
+|---|---|---|
+| `verified: false` | not reviewed | *drift*: reported, not a failure |
+| `verified: true` | a human decided this label | a **regression**, exit 1 |
+| `verified: true, known_bad: true` | decided, and the classifier does not agree yet | expected; a *match* reports **FIXED** |
+
+The third state is what makes it a specification rather than a change-detector: the
+answer is written down before the code can produce it.
+
+It has already earned its keep three times. It caught a margin rule that turned 90
+correct rejections into `unresolved`, because a rejection is an acknowledgement plus a
+verdict and the two scored two hundredths apart. It caught `SUBJECT_ONLY` being scored as
+a competitor, which turned thirty real calendar invitations into `unresolved`. And it
+caught a label a human had got wrong by accepting the classifier's output at the time,
+which is precisely what `verified` exists to prevent.
+
+`corpus/` is gitignored: it holds real subjects, senders and bodies. Only the tooling is
+committed. Re-export never overwrites `expect`, `verified`, `known_bad` or `note` on a
+reviewed record, or the corpus decays into a mirror of the classifier it checks.
+
 ## Refresh order
 
 `refresh` chains the pipeline and the order is load-bearing: **sync, resolve, discover,
@@ -566,9 +725,13 @@ and fit before the dashboard, which is a pure projection and must run last.
 
 ```
 doctor · validate · init · ingest-csv · sync · reclassify · resolve
-discover · fit [--rescore] · prospects · resume <id>
+discover · fit [--rescore] · prospects · resume <id> · corpus [--export]
+snooze <id> [--days N | --until DATE | --clear]
 intel [--limit N] [--company X] [--refresh] [--show]
 pipeline · why <id> · event · review · stats · analytics · dashboard [--artifact]
 ```
 
 Tests: `python3 -m unittest discover -s tests -v` (36 tests, guard the state machine).
+Then `careerops corpus`, which guards the classifier against 886 real emails. Run both
+before and after any change to `classify.py`; the unit tests cover the state machine,
+the corpus covers the language.
