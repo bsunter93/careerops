@@ -18,6 +18,7 @@ local dashboard.html and degrades to what it always did everywhere else.
 import json, pathlib, re, threading, traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+from .db import DEFAULT_DB
 
 from . import db
 
@@ -90,6 +91,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/ping":
             return self._send(200, {"ok": True, "resume_dir": self.resume_dir})
+        if u.path == "/snooze":
+            return self._snooze(parse_qs(u.query))
         if u.path != "/resume":
             return self._send(404, {"ok": False, "error": "unknown endpoint"})
         try:
@@ -105,6 +108,43 @@ class Handler(BaseHTTPRequestHandler):
         print(f"    {'ok ' + str(res.get('pdf')) if res.get('ok') else 'failed: ' + str(res.get('error'))}",
               flush=True)
         self._send(200 if res.get("ok") else 500, res)
+
+    def _snooze(self, q):
+        """Snooze from the dashboard instead of copying a command into a terminal.
+
+        Same write as `careerops snooze`: a date on the application, nothing else. Days
+        default to 30, `clear=1` lifts it. Keeping this beside /resume means the page
+        already knows whether the server is up, and the copy-the-command path stays as
+        the fallback for when it is not.
+        """
+        import sqlite3
+        from datetime import date, timedelta
+        try:
+            app_id = int(q.get("app", [""])[0])
+        except ValueError:
+            return self._send(400, {"ok": False, "error": "app must be an integer id"})
+        clear = q.get("clear", ["0"])[0] in ("1", "true", "yes")
+        try:
+            days = int(q.get("days", ["30"])[0])
+        except ValueError:
+            days = 30
+        until = None if clear else (q.get("until", [""])[0]
+                                    or (date.today() + timedelta(days=days)).isoformat())
+        reason = (q.get("reason", [""])[0] or None)
+        conn = sqlite3.connect(self.db_path or DEFAULT_DB)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""SELECT a.id, c.name co, r.title FROM applications a
+                              JOIN roles r ON r.id=a.role_id
+                              JOIN companies c ON c.id=r.company_id WHERE a.id=?""",
+                           (app_id,)).fetchone()
+        if not row:
+            return self._send(404, {"ok": False, "error": f"no application {app_id}"})
+        conn.execute("UPDATE applications SET snoozed_until=?, snooze_reason=? WHERE id=?",
+                     (until, reason, app_id))
+        conn.commit()
+        print(f"  snooze {app_id} {row['co']} -> {until or 'cleared'}", flush=True)
+        return self._send(200, {"ok": True, "id": app_id, "company": row["co"],
+                                "role": row["title"], "until": until})
 
     do_POST = do_GET
 

@@ -212,7 +212,7 @@ def cmd_discover(a):
         cfg = _config()          # reload: expand() may have appended boards
     s = discover(conn, cfg["watchlist"], cfg["titles"], cfg["locations"],
                  cfg.get("exclude_titles", []), cfg.get("comp_floor", 0),
-                 cfg.get("relocation"))
+                 cfg.get("relocation"), cfg.get("exclude_domains", []))
     failed = s.pop("failed", [])
     unscored, unscorable = s.pop("unscored", 0), s.pop("unscorable", 0)
     print("  ".join(f"{k}={v}" for k, v in s.items()))

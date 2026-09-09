@@ -995,7 +995,7 @@ document.getElementById('actions').addEventListener('click',e=>{
         +(o.a.status==='prospect'
            ? `<button type="button" class="gen" data-app="${o.a.id}">Generate resume</button>`
              + `<button type="button" class="cp" data-cmd="careerops apply ${o.a.id}">Applied? copy <code>careerops apply ${o.a.id}</code></button>`
-             + `<button type="button" class="cp" data-cmd="careerops snooze ${o.a.id} --days 30">Not now? copy <code>careerops snooze ${o.a.id}</code></button>`
+             + `<button type="button" class="snz" data-app="${o.a.id}" data-cmd="careerops snooze ${o.a.id} --days 30">Not now &middot; snooze 30d</button>`
            : '')
         +`</div>`
       : `<div class="dd-act"><button type="button" data-flt="${o.filter?1:0}">Show these in the table</button></div>`;
@@ -1029,6 +1029,28 @@ document.getElementById('actions').addEventListener('click',e=>{
         restore('Generate resume',6000);
       })
       .catch(fallback);
+    return;
+  }
+  // Snooze in place. Same write as `careerops snooze`, through the server that is
+  // already running for the resume buttons. Copying a command into a terminal to say
+  // "not this one" is more friction than the decision deserves; when the server is not
+  // up we fall back to copying, which is what this button used to do unconditionally.
+  if(b.classList.contains('snz')){
+    const id=b.dataset.app, row=b.closest('.act-w');
+    const restore=(html,ms)=>setTimeout(()=>{b.innerHTML=html;b.disabled=false;},ms);
+    b.disabled=true; b.innerHTML='snoozing…';
+    fetch(`http://127.0.0.1:8765/snooze?app=${encodeURIComponent(id)}&days=30`)
+      .then(r=>r.json())
+      .then(d=>{
+        if(!d.ok){b.innerHTML='failed: '+esc(d.error||'unknown');restore('Not now · snooze 30d',5000);return;}
+        b.innerHTML='snoozed until '+esc(d.until);
+        if(row){row.style.transition='opacity .3s';row.style.opacity='.45';}
+      })
+      .catch(()=>{
+        b.innerHTML='server not running, command copied';
+        if(navigator.clipboard) navigator.clipboard.writeText(b.dataset.cmd);
+        restore('Not now · snooze 30d',3200);
+      });
     return;
   }
   if(b.dataset.cmd){

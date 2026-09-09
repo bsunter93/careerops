@@ -247,7 +247,8 @@ def _worth_relocating(title_low: str, loc_low: str, rules: "Optional[dict]",
 
 def discover(conn, watchlist: list, titles: list, locations: list,
              excludes: list = (), comp_floor: int = 0,
-             relocation: "Optional[dict]" = None) -> dict:
+             relocation: "Optional[dict]" = None,
+             exclude_domains: list = ()) -> dict:
     """watchlist: [{"company": "Databricks", "board": "greenhouse", "slug": "databricks"}, ...]"""
     stats = {"boards": 0, "fetched": 0, "matched": 0, "new": 0,
              "excluded_title": 0, "below_comp": 0, "failed": []}
