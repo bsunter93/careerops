@@ -221,6 +221,27 @@ that blocked Reddit and Pinterest *monetization* TPM roles scoring 72, squarely 
 the ads/GTM background, while the real problem was `infrastructure`, `security`,
 `compute`, `machine learning`. Exclusions are domain and level, never job family.
 
+**A filter that removes rows silently is the one to test hardest.** Three of these in one
+afternoon, none of which raised an error: the dashboard looked healthy while the roles simply
+were not there. Absence is the failure mode of every gate in `discover`, so a gate change
+needs a before/after count, not a glance at the output.
+
+**Seniority in the title is a proxy for pay, and a proxy must not outrank the thing it stands
+in for.** `_worth_relocating` required a seniority keyword AND coast AND comp. Anthropic posts
+$270-310k San Francisco roles titled "GTM Strategy & Operations - AMER Enterprise Tech" with no
+director / head / lead / principal / staff / VP anywhere in them, so fourteen roles were
+discarded while a lower-paying one whose only difference was the word "Lead" came through. Above
+`relocation.comp_override` the published range decides on its own.
+
+**The two comp tests read opposite ends of the band on purpose.** `comp_floor` rejects only when
+even the top of the range is too low; `comp_override` grants only when even the bottom clears it.
+A $270-310k posting is not a $300k role, it is a role that might pay $270k, and that is the
+number to plan a family move against.
+
+**Title matching was a plain substring test, so "program manager" could not match "GTM Programs
+Manager, AMER".** Singular and plural now both match, in either direction, via `_kw_pattern`.
+Adding the missing keyword would have fixed one role; the matcher fixes the class.
+
 **Comp floor never filters on absence.** Most JDs post no range. Only a *parsed* max
 below the floor disqualifies.
 
@@ -282,12 +303,36 @@ highest-scoring open role, never a batch.
 match" and "we'll keep your information on file" evade every hard pattern and fall through
 to the ack rule, leaving dead applications sitting in the live pipeline indefinitely.
 
+**Conditional language needs stripping wherever a model reads free text, not just in the email
+classifier.** `_strip_conditionals` exists because "If you are not selected for this position"
+turned 14 acknowledgements into rejections. The same bug then appeared in fit scoring: Anthropic
+attaches "For sales roles, the range provided is the role's On Target Earnings (OTE) range" to
+every posting regardless of function, and the scorer read that hypothetical as a fact about a
+non-quota IC role, called the base salary OTE, and scored an 87 as a 28. `profile.md` now states
+the rule explicitly.
+
+**A multi-location posting is judged on the location that qualifies.** The same scoring failed a
+San Francisco role because it was also listed in New York, which does not qualify on its own.
+
+**The relocation rule lives in three places and will drift.** `config.json` for the discover
+gate, `profile.md` prose for the scorer, and the docstring in `_worth_relocating`. Changing one
+produced a state where `discover` admitted a role and `fit` then penalised it for failing the
+same test. Change all three together.
+
 **Company policy** (`config.json → company_policy`) injects history into the prompt and
 gates surfacing. Location uses `location_verdict()`: `remote` / `colorado` / `ambiguous`
 / `elsewhere`. Ambiguous national postings pass *with a flag*, because under-filtering beats
 hiding a reachable role. A named non-CO city makes a posting concrete, not ambiguous.
 
 ## Resume generation
+
+**`resume_dir` was read by `serve` and ignored by the CLI**, so the dashboard button wrote to
+`~/Desktop/resumes` while the command line wrote into the repo: one operation, two homes,
+depending on how it was invoked. `build()` now accepts either a directory or a full path.
+
+**`--verify` is silent when Word blocks on a permission dialog.** The run exits cleanly having
+rendered nothing, which reads as success. A resume reported as built with no page count printed
+has not been verified.
 
 `resume/master.json` is the single source of truth: 16 tagged bullets, 3 employers.
 Do not fork it into variants: that is what produced three divergent `build*.js` files

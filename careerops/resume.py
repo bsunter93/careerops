@@ -5,7 +5,7 @@ trimmed document. Bullet selection is deterministic (tag + token overlap against
 `emphasize`, the role title, and the JD) so it is inspectable and repeatable.
 Only the two prose lines -- tagline and profile -- go through the model.
 """
-import json, re, subprocess, pathlib, shutil
+import json, pathlib, re, subprocess, pathlib, shutil
 from typing import Optional
 from . import fit
 
@@ -160,7 +160,20 @@ def build(conn, app_id: int, out: Optional[str] = None, cap: int = MAX_BULLETS) 
 
     safe = re.sub(r"[^A-Za-z0-9]+", "", row["company"])[:16]
     who = re.sub(r"[^A-Za-z]+", "", (m.get("header", {}).get("name", "Resume").split() or ["Resume"])[-1])
-    out = out or str(ROOT / f"{who or 'Resume'}_{safe}_{app_id}.docx")
+    # `out` may be a file path or a directory. The CLI passes config.resume_dir, the
+    # server passes a full path, and defaulting to ROOT put CLI-built resumes in the repo
+    # while the dashboard button put them in ~/Desktop/resumes: one operation, two homes.
+    name = f"{who or 'Resume'}_{safe}_{app_id}.docx"
+    if out:
+        _p = pathlib.Path(out).expanduser()
+        if _p.is_dir() or not _p.suffix:
+            _p.mkdir(parents=True, exist_ok=True)
+            out = str(_p / name)
+        else:
+            _p.parent.mkdir(parents=True, exist_ok=True)
+            out = str(_p)
+    else:
+        out = str(ROOT / name)
     variant = {"out": out, "tagline": pr["tagline"], "profile": pr["profile"],
                "skills": pick_skills(m, emph, row["title"], row["jd_text"]),
                "bullets": chosen}

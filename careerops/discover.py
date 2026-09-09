@@ -5,6 +5,7 @@ LinkedIn/Indeed: against their terms, brittle, and unnecessary since most
 targets sit on Greenhouse, Ashby, or Lever anyway.
 """
 import json, re, hashlib, urllib.request, urllib.error
+from functools import lru_cache
 from typing import Iterable, Optional
 from . import db
 
@@ -130,44 +131,79 @@ def _loc_hit(loc_low: str, patterns: Iterable[str]) -> bool:
     return False
 
 
+def _kw_pattern(kw: str) -> "re.Pattern":
+    """A keyword matches its own plural, and vice versa.
+
+    The filter was a plain substring test, so "program manager" could not match
+    "GTM Programs Manager, AMER" and the role was invisible. Same silent-absence
+    failure as the relocation gate: nothing errors, the row simply never appears.
+
+    Each word may carry a trailing s, in either direction, so "operations" still
+    matches "operations". No word boundaries, to keep the old substring semantics.
+    """
+    words = kw.lower().split()
+    stems = [(w[:-1] if len(w) > 3 and w.endswith("s") else w) for w in words]
+    return re.compile(r"\s+".join(re.escape(x) + "s?" for x in stems))
+
+
+@lru_cache(maxsize=512)
+def _kw(kw: str):
+    return _kw_pattern(kw)
+
+
 def matches(job: dict, titles: Iterable[str], locations: Iterable[str],
             excludes: Iterable[str] = (), relocation: "Optional[dict]" = None,
-            comp_max: "Optional[int]" = None) -> bool:
+            comp_max: "Optional[int]" = None,
+            comp_min: "Optional[int]" = None) -> bool:
     t = (job.get("title") or "").lower()
     if any(x.lower() in t for x in excludes):
         return False
-    if not any(k.lower() in t for k in titles):
+    if not any(_kw(k).search(t) for k in titles):
         return False
     if not locations:
         return True
     loc = (job.get("location") or "").lower()
     if _loc_hit(loc, locations):
         return True
-    return _worth_relocating(t, loc, relocation, comp_max)
+    return _worth_relocating(t, loc, relocation, comp_max, comp_min)
 
 
 def _worth_relocating(title_low: str, loc_low: str, rules: "Optional[dict]",
-                      comp_max: "Optional[int]") -> bool:
+                      comp_max: "Optional[int]",
+                      comp_min: "Optional[int]" = None) -> bool:
     """A role outside the home market has to be worth moving a family for.
 
-    All three conditions, not any of them: the right coast, a senior title, and pay far
-    enough above the home floor to cover the move. The comp floor is deliberately much
-    higher than the local one, because the comparison is not Denver salary against coast
-    salary, it is Denver life against coast cost of living.
+    The right coast is always required, and a published range is always required: an
+    unverified guess is exactly the wrong thing to relocate on. California and Washington
+    both mandate pay ranges in postings, so the roles this rule targets almost always
+    state one.
 
-    Requiring a published number costs almost nothing here: California and Washington
-    both require pay ranges in job postings, so the roles this rule targets almost always
-    state one. A posting with no range is not treated as qualifying, since an unverified
-    guess is exactly the wrong thing to relocate on.
+    Above `comp_override` the pay decides on its own. Below it, the old rule still holds:
+    a senior title as well as pay above `comp_floor`.
+
+    The seniority keywords are a proxy for pay, and a proxy must not outrank the thing it
+    stands in for. Anthropic posts $270-310k San Francisco roles titled "GTM Strategy &
+    Operations - AMER Enterprise Tech" and "Sales Strategy, Operational Excellence",
+    neither carrying director / head / lead / principal / staff / VP, and the title test
+    was discarding both while admitting a lower-paying role whose only difference was the
+    word "Lead". Same family of bug as filtering on job title instead of domain.
     """
     if not rules:
         return False
     if not _loc_hit(loc_low, rules.get("locations", ())):
         return False
-    if not any(k.lower() in title_low for k in rules.get("seniority", ())):
-        return False
     floor = rules.get("comp_floor") or 0
-    return bool(comp_max and comp_max >= floor)
+    if not (comp_max and comp_max >= floor):
+        return False
+    # The two comp tests deliberately read opposite ends of the band, because each is
+    # conservative in a different direction. The floor rejects only when even the top of
+    # the range is too low. The override grants only when even the bottom of the range
+    # clears it: a $270-310k posting is not a $300k role, it is a role that might pay
+    # $270k, and that is the number to plan a family move against.
+    override = rules.get("comp_override") or 0
+    if override and comp_min and comp_min >= override:
+        return True
+    return any(k.lower() in title_low for k in rules.get("seniority", ()))
 
 
 def discover(conn, watchlist: list, titles: list, locations: list,
@@ -199,7 +235,7 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             # to decide whether a role outside the home market is worth moving for.
             jd = j.get("jd_text") or ""
             cmin, cmax = extract_comp(jd)
-            if not matches(j, titles, locations, excludes, relocation, cmax):
+            if not matches(j, titles, locations, excludes, relocation, cmax, cmin):
                 continue
             # Only filter when comp was actually parsed; unknown never disqualifies.
             if comp_floor and cmax and cmax < comp_floor:

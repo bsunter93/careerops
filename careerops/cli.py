@@ -437,9 +437,18 @@ def cmd_resume(a):
     to drop the lowest-ranked bullet and re-render rather than to guess at wording.
     """
     from .resume import build, page_count, MAX_BULLETS
+    import pathlib
     cap = a.bullets or MAX_BULLETS
+    # Honour config.resume_dir, the same key `serve` uses. Without this the CLI wrote to
+    # the working directory while the dashboard button wrote to ~/Desktop/resumes, so the
+    # same operation put the file in two different places depending on how it was invoked.
+    out = a.out
+    if not out:
+        d = pathlib.Path(_config().get("resume_dir", "~/Desktop/resumes")).expanduser()
+        d.mkdir(parents=True, exist_ok=True)
+        out = str(d)
     for attempt in range(4):
-        r = build(db.connect(a.db), a.id, a.out, cap=cap)
+        r = build(db.connect(a.db), a.id, out, cap=cap)
         if attempt == 0:
             print(f"{r['company']} - {r['title']}  (fit {r['score']})")
             print(f"  tagline: {r['tagline']}")
