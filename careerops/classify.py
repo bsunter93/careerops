@@ -58,6 +58,10 @@ BLACKLIST = [
     # which is the recruiter_outreach pattern verbatim. Consumer-finance mail is the
     # one category that shares recruiting's opening line.
     r"\bcredit card\b", r"\bdebit card\b", r"\bcard ending\b",
+    # A rental listing mailed "your application ... has been declined", which is a rental application.
+    # A street address where a job title belongs is the tell, and it generalises.
+    r"\b\d{1,6}\s+[\w.'-]+(?:\s+[\w.'-]+)?\s+"
+    r"(?:dr|drive|st|street|ave|avenue|rd|road|ln|lane|ct|court|blvd|boulevard|way|pl|place)\b",
 ]
 
 # Mail inviting you to APPLY to something is marketing, not a response to an
@@ -126,19 +130,40 @@ REJECT_STRONG = [
     r"\b(?:position|role|requisition|req) (?:has been |was |is )?(?:filled|closed|cancell?ed)\b",
     r"\bwe have (?:filled|closed|cancell?ed)\b",
     r"\bfilled (?:this|the) (?:position|role)\b",
-    r"\bnot (?:be )?(?:proceeding|moving forward)\b",
+    # "We've made the decision to not move forward at this time" is the infinitive, not
+    # the gerund, and matched neither this nor "will not be moving". PandaDoc's
+    # rejection survived only on "keep your resume on file", which is weak evidence.
+    r"\bnot (?:be )?(?:proceeding|mov(?:e|ing) forward|going forward|continuing)\b",
     # "decided to proceed with other candidates" is as definitive as "decided not to",
     # and matches none of the negated patterns above. One pattern covers the family:
     # proceed/move forward/continue/pursue, in any inflection, with other/another.
     r"\b(?:proceed|mov|continu|pursu)\w*\s+(?:forward\s+)?with\s+(?:other|another|a different)\b",
     r"\bwill not be moving\b", r"\bdecided not to\b",
+    # Contractions defeat \bnot\b: "we won't be moving forward at this time" matched
+    # nothing and Gusto's rejection was filed as an acknowledgement.
+    r"\bwo(?:n\u2019t|n't|nt) be (?:moving|proceeding|continuing|going)\b",
+    # And a refusal need not mention moving at all. Addepar wrote "we are unable to
+    # offer you an interview for the Product Operations Lead role".
+    r"\bunable to (?:offer|proceed|progress|move forward)\b",
     r"\bunfortunately\b", r"\bno longer under consideration\b",
+    # "We regret to inform you that you were not selected" is as definitive as English
+    # gets, and matched only the weak half, which AMD's ack language then outscored.
+    r"\bregret to inform\b",
+    # Promoted out of REJECT_WEAK: both state the outcome outright. NVIDIA's "we are no
+    # longer recruiting for JR2012976" lost to the "thank you for your interest" that
+    # opened the same email.
+    r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
+    r"\bnot selected\b",
 ]
+# Phrases that appear in acknowledgements as readily as in rejections, so they are
+# evidence only in the absence of something better. Anduril's acknowledgement explains
+# that it focuses on "candidates whose backgrounds best align" and mentions other
+# candidates; Apple's says it will keep your resume on file while telling you what
+# happens next. Both were filed as rejections. Scored at REJECT_WEAK_FACTOR below.
 REJECT_WEAK = [
     r"\bkeep your (?:information|resume|r\u00e9sum\u00e9|details|profile|application) on file\b",
     r"\bnot (?:a |the )?(?:best|right|strong(?:est)?) (?:match|fit)\b",
-    r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
-    r"\bother candidates\b", r"\bnot selected\b",
+    r"\bother candidates\b",
 ]
 
 EVENT_PATTERNS = [
@@ -529,6 +554,7 @@ BODY_TRUST = {
     # its own. What disqualifies Chase is the corroboration test below, not this weight.
     "recruiter_outreach": 0.55,
 }
+REJECT_WEAK_FACTOR = 0.55                    # weak phrases are evidence, not a verdict
 SUBJECT_WEIGHT = 1.00
 SUBJECT_ONLY_WEIGHT = 0.45                   # weak fragments, subject line only
 CORROBORATION_BONUS = 0.20                   # said in the subject and again in the body
@@ -548,6 +574,7 @@ RECRUITING_CONTEXT = re.compile(
 # Ties fall back to the old precedence: offer beats rejection beats invite, and so on
 # down EVENT_PATTERNS. Small enough never to overturn real evidence.
 _ORDER = {t: (len(EVENT_PATTERNS) - i) * 0.001 for i, (t, _) in enumerate(EVENT_PATTERNS)}
+_WEAK_EVIDENCE = frozenset(REJECT_WEAK)
 
 
 def score_types(subject: str, body: str = "") -> dict:
@@ -563,16 +590,17 @@ def score_types(subject: str, body: str = "") -> dict:
                 if ack_subject and etype in ("interview_invite", "assessment",
                                              "recruiter_outreach") else 1.0)
         for p in pats:
+            weak = REJECT_WEAK_FACTOR if p in _WEAK_EVIDENCE else 1.0
             m = re.search(p, subj_low)
             if m:
                 in_subj = True
-                w = SUBJECT_WEIGHT * (damp if etype == "recruiter_outreach" else 1.0)
+                w = SUBJECT_WEIGHT * weak * (damp if etype == "recruiter_outreach" else 1.0)
                 if w > best:
                     best, lit = w, m.group(0).strip()
             m = re.search(p, both_low)
             if m:
                 in_body = True
-                w = BODY_TRUST.get(etype, 0.60) * damp
+                w = BODY_TRUST.get(etype, 0.60) * weak * damp
                 if w > best:
                     best, lit = w, m.group(0).strip()
         if best:
