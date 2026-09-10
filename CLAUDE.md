@@ -47,6 +47,17 @@ the", "joining Cloudflare and the time you invested in your application", a bare
 titles. A title naming no role, or merely repeating the employer, is rejected in favour
 of "Unknown role", which is honest and reviewable. Prose is neither.
 
+`resolve.repair_titles()` is the retroactive half, and it runs on every `resolve`. It
+renames the role row in place rather than going through `set_identity`, because that
+folds colliding rows: nine OpenAI applications share one role row, and folding them into
+an existing "Unknown role" row would have deleted eight real applications. Where such a
+row already exists at that company the replacement is made unique so nothing merges.
+
+OpenAI is the honest case for admitting ignorance. Its acknowledgement reads "we will
+review it for the role you applied to" and names nothing, in nine identical emails, so no
+extraction rule could ever recover the title. "Unknown role" is the correct answer there,
+not a fallback.
+
 **Never guess.** Below 0.60 confidence, or missing company/role, goes to `review_queue`.
 No fabricated fit scores: no JD means no score. `fit.py` returns `None` rather than a
 number. Bad data is worse than absent data.

@@ -561,6 +561,45 @@ def demote_outreach_only(conn) -> dict:
     return stats
 
 
+def repair_titles(conn) -> dict:
+    """Replace stored titles that name no role with an honest "Unknown role".
+
+    The gate at the end of `classify` stops new ones, but `reclassify` rewrites only
+    `type` and `confidence`, so rows written before the gate existed keep their prose:
+    "candidacy for the", "joining Cloudflare and the time you invested in your
+    application", a bare "position", and eight titles that were just the employer's name.
+
+    Renames the role row in place rather than going through `set_identity`, because that
+    folds colliding rows: nine OpenAI applications all point at one role row, and folding
+    them into an existing "Unknown role" row would delete eight real applications. Where
+    such a row already exists, the title is made unique instead so nothing merges. A
+    later `dedupe_roles` cannot join them either, for the same reason.
+
+    OpenAI's acknowledgement is the honest case for this: "we will review it for the role
+    you applied to" names nothing, so no extraction rule could ever recover it. Unknown is
+    the correct answer, not a fallback.
+    """
+    from .classify import ROLE_NOUN
+    stats = {"recovered": 0, "unknown": 0}
+    rows = conn.execute("""SELECT DISTINCT ro.id, ro.title, ro.company_id, co.name company
+                           FROM applications a
+                           JOIN roles ro ON ro.id = a.role_id
+                           JOIN companies co ON co.id = ro.company_id
+                           WHERE a.status != 'prospect'""").fetchall()
+    for r in rows:
+        t = (r["title"] or "").strip()
+        if not t or "unknown" in t.lower() or ROLE_NOUN.search(t):
+            continue
+        clash = conn.execute("""SELECT id FROM roles WHERE company_id=? AND id!=?
+                                AND lower(title) LIKE 'unknown%'""",
+                             (r["company_id"], r["id"])).fetchone()
+        new_title = f"Unknown role ({r['id']})" if clash else "Unknown role"
+        conn.execute("UPDATE roles SET title=? WHERE id=?", (new_title, r["id"]))
+        stats["unknown"] += 1
+    conn.commit()
+    return stats
+
+
 def merge_orphan_outcomes(conn, window_days: int = 120, progress=print) -> int:
     """An application holding only an outcome (rejection, interview) and no ack is the
     tail of an earlier submission to the same role, not a separate application."""
