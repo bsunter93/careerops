@@ -42,18 +42,19 @@ whose sender domain parses becomes an application: AppSheet emailing about an ap
 **A title must name a role.** One gate at the end of `classify` validates whatever any
 path produced, because only `role_from_body` ever validated its own capture: the subject
 rules and `company-was-actually-role` set titles unchecked, which is how "candidacy for
-the", "joining Cloudflare and the time you invested in your application", a bare
+the", "joining <Employer> and the time you invested in your application", a bare
 "position", and a clause from a sentence about quantum superposition all became job
 titles. A title naming no role, or merely repeating the employer, is rejected in favour
 of "Unknown role", which is honest and reviewable. Prose is neither.
 
 `resolve.repair_titles()` is the retroactive half, and it runs on every `resolve`. It
 renames the role row in place rather than going through `set_identity`, because that
-folds colliding rows: nine OpenAI applications share one role row, and folding them into
-an existing "Unknown role" row would have deleted eight real applications. Where such a
-row already exists at that company the replacement is made unique so nothing merges.
+folds colliding rows: nine applications at one employer share one role row, and folding
+them into an existing "Unknown role" row would have deleted eight real applications.
+Where such a row already exists at that company the replacement is made unique so
+nothing merges.
 
-OpenAI is the honest case for admitting ignorance. Its acknowledgement reads "we will
+That employer is the honest case for admitting ignorance. Its acknowledgement reads "we will
 review it for the role you applied to" and names nothing, in nine identical emails, so no
 extraction rule could ever recover the title. "Unknown role" is the correct answer there,
 not a fallback.
@@ -126,14 +127,14 @@ where no Gmail original existed. Never re-run `ingest-csv` after a full sync.
 query cannot. Under-fetching is therefore the one irreversible failure in the pipeline,
 and over-fetching only costs a trip through the classifier.
 
-An Anthropic rejection sat unseen for a year because it failed both arms of the query:
-its subject read "Anthropic Follow-Up for [Pipeline] Product Manager, Monetization"
+A rejection sat unseen for a year because it failed both arms of the query: its subject
+read "<Employer> Follow-Up for [Pipeline] Product Manager, Monetization"
 (no trigger word: "follow-up" was not one) and it came from `appreview.gem.com`, which
 was not on the vendor list. Widening both arms recovered 44 events and 13 applications.
 Keep the vendor domain list ahead of the ATSes actually seen in the corpus.
 
-A live interview invitation failed both arms the same way a year later: Headway's
-recruiter wrote "Hello From Headway! We'd Love to Chat" from the company's own domain,
+A live interview invitation failed both arms the same way a year later: a recruiter
+wrote "Hello From <Employer>! We'd Love to Chat" from the company's own domain,
 which carries no application vocabulary and matches no ATS vendor. Outreach that *opens*
 a conversation does not use application language at all, so the subject arm now carries
 first-meeting vocabulary (chat, connect, opportunity, role, reaching out) and a third,
@@ -167,15 +168,14 @@ discovered prospects, which legitimately have none, are untouched.
 never becomes a company.
 
 **A cancelled or filled requisition is a rejection.** Twelve events carried closure
-language; six sat as `unresolved`, so real outcomes from Microsoft, Amazon, Adobe,
-DoorDash, Box and Cloudflare were never recorded at all. One, NVIDIA, read as forward
-progress: "we are reaching out to inform you that we are no longer recruiting" tripped a
-recruiter pattern, so a dead req outranked an acknowledgement.
+language; six sat as `unresolved`, so six real outcomes were never recorded at all. One
+read as forward progress: "we are reaching out to inform you that we are no longer
+recruiting" tripped a recruiter pattern, so a dead req outranked an acknowledgement.
 
 **`reaching out` is ordinary English, not a recruiter signal.** It appears inside closure
 mail and rejections. Recruiter outreach needs intent attached: `reaching out about`,
 `came across your profile`, `would you be open`. Removing the bare pattern also let three
-genuine Stripe interview threads classify correctly, since a weaker type had been
+genuine interview threads classify correctly, since a weaker type had been
 matching first.
 
 **A definitive ack subject blocks every promotion, not just interviews.** The guard
@@ -193,9 +193,9 @@ record says it is dead, so you never follow up. `_strip_conditionals` removes cl
 opened by if / should / unless / in the event before rejection and offer patterns run.
 
 **Weak interview signals are subject-only.** ATS acks routinely say "we'll be in touch
-about next steps" in boilerplate, which promoted "Thank you for applying to DoorDash"
-to an interview. Strong patterns (`invitation to interview`) may match the body; weak
-ones (`next steps`, `availability`) may not. A definitive ack subject blocks promotion
+about next steps" in boilerplate, which promoted a plain "Thank you for applying to
+<Employer>" to an interview. Strong patterns (`invitation to interview`) may match the
+body; weak ones (`next steps`, `availability`) may not. A definitive ack subject blocks promotion
 entirely. This took 22 false interviews down to 7 real ones.
 
 **Blacklist is scoped to subject + sender, never the body.** ATS footers contain
@@ -212,7 +212,7 @@ company at a time.
 
 **A title names a job; prose that survives the role patterns does not.** Two bodies cleaned
 fine, sat under the 12-word cap in `_clean_role`, and became role rows: "multiple states at
-once", from quantum-computing copy, and "joining Cloudflare and the time you invested in your
+once", from quantum-computing copy, and "joining <Employer> and the time you invested in your
 application", from rejection boilerplate. `ROLE_NOUN` now requires one role or function noun
 in the cleaned title. Measured against the corpus it rejects 25 of 481 distinct titles and
 loses no real one: twelve are property-listing notifications ("467 Luther Dr has been opened")
@@ -221,7 +221,7 @@ rest are sentence fragments. Rejecting returns None, which routes the event to `
 through the missing-role path rather than discarding it.
 
 **Store the body correctly or none of the above works.** Strip `<style>`/`<script>`
-BEFORE tags: an Amazon `@font-face` block is ~2000 chars and filled the whole stored
+BEFORE tags: one retailer's `@font-face` block is ~2000 chars and filled the whole stored
 body, so 81 events held CSS instead of text. `sync --refetch` repairs them.
 
 **Never rename a role row that several applications share.** They all inherit the new
@@ -240,7 +240,7 @@ attached), record it as a `rejection` event with `source='portal'` so status sti
 from the log. Applications whose role was matched from the portal carry
 `channel='portal-inferred'` and a note saying the mapping is approximate.
 
-**The From display name is the best company signal.** `Match Group <no-reply@hire.lever.co>`
+**The From display name is the best company signal.** `Employer Name <no-reply@hire.lever.co>`
 carries the employer where the domain carries only the vendor. When a subject says
 "Thanks for applying to X" and X reads like a job title, X is the ROLE and the company
 comes from the display name.
@@ -248,11 +248,11 @@ comes from the display name.
 **Store the Gmail threadId, and let it own application identity.** Later messages in one
 conversation resolve slightly different titles from their bodies, so "Launch PgM" and
 "Launch Program Manager" became separate applications and a single interview loop counted
-as several advances. Stripe read as 6 advances against a true 2. An event whose thread
+as several advances. One loop read as 6 advances against a true 2. An event whose thread
 already has an application attaches to it and never re-resolves a role.
 
 **Thread alone is not enough, in either direction.** Gmail also threads on identical
-subjects, so two real applications sharing "Thanks for applying to Stripe!" land in one
+subjects, so two real applications sharing "Thanks for applying to <Employer>!" land in one
 thread and must not be folded: `merge_threads` clusters by title compatibility inside a
 thread and leaves incompatible roles apart. And one-off calendar confirmations get their
 own thread, so interview confirmations for an existing loop stay orphaned; those need a
@@ -261,7 +261,7 @@ human. Never infer a merge from timestamps alone.
 **Enforce that at ingestion too, not only in `resolve`.** An ATS titles every
 acknowledgement "Thank you for applying to <company>", so Gmail threads them together, and
 ingestion was treating a shared `thread_id` as proof of a shared application. Three
-Anthropic acknowledgements sent inside eight minutes, naming three different requisitions,
+acknowledgements from one employer, sent inside eight minutes and naming three requisitions,
 all landed on one application, and the board showed two of them as never acknowledged.
 Ingestion now checks the incoming role against the prior's stored title with `_compatible`
 before adopting its `application_id`, and declines the thread when they disagree. The
@@ -352,7 +352,7 @@ interview"), and the infinitive a second time, on its other side ("the difficult
 not to move forward", which the first infinitive fix did not reach). Add the form, not the
 instance, and note how hard that is: the fourth fix looked like it had covered the form
 and had covered one placement of it. English puts the infinitive on either side of the
-negation. Quantinuum's rejection sat misread as an acknowledgement until it did.
+negation. A real rejection sat misread as an acknowledgement until it did.
 
 ## Finding the decision maker
 
@@ -547,7 +547,7 @@ with the resume, which is why a 2% cold rate is what applying at random posting 
 returns.
 
 So `prospects` and Do next band by age first and rank by fit inside the band. A 145-day-old
-85 (Pinterest) is a worse bet than a 3-day-old 78 (Figma), and any ranking that puts them
+85 is a worse bet than a 3-day-old 78, and any ranking that puts them
 in fit order is actively misleading.
 
 All three boards expose it: Greenhouse `first_published`, Ashby `publishedAt`, Lever
@@ -582,9 +582,9 @@ It is now a single inline warning glyph carrying the explanation in a tooltip, u
 delegated `[data-t]` handler shared with the table's rating chips.
 
 **Some employers cap applications per window, and a rejection still burns a slot.**
-Headway allows 2 across all roles per 60 days. A soft rejection in July had been sitting
-misclassified as an ack, so the system showed one slot used when both were gone, and the
-85-scoring Chief of Staff role could not be applied to. `company_policy.<name>.application_limit`
+One employer allows 2 across all roles per 60 days. A soft rejection had been sitting
+misclassified as an ack, so the system showed one slot used when both were gone, and an
+85-scoring role at that company could not be applied to. `company_policy.<name>.application_limit`
 = `{count, days}`; Do next shows used/cap on every row for that company and locks the row
 with the reopen date once the cap is hit. Where a cap exists, surface only the single
 highest-scoring open role, never a batch.
@@ -800,7 +800,7 @@ and offers the jump once, on a button.
 
 **A funnel counts what an application EVER reached, not where it sits now.** Status is
 monotonic and rejection outranks interview, so counting current status erased every loop
-that ended in a no. Two Walmart interviews in May 2026 disappeared the moment the
+that ended in a no. Two interviews in May 2026 disappeared the moment the
 rejection was recorded, and the funnel then reported zero advances for the whole year.
 `ever_advanced` and `ever_interviewed` are derived from the event log, not from status.
 
