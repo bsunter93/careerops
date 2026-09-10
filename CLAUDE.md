@@ -39,6 +39,14 @@ creation on a real application event type plus a confidence floor. Without it, a
 whose sender domain parses becomes an application: AppSheet emailing about an app named
 "Master Job Application Pipeline" produced a phantom Google application.
 
+**A title must name a role.** One gate at the end of `classify` validates whatever any
+path produced, because only `role_from_body` ever validated its own capture: the subject
+rules and `company-was-actually-role` set titles unchecked, which is how "candidacy for
+the", "joining Cloudflare and the time you invested in your application", a bare
+"position", and a clause from a sentence about quantum superposition all became job
+titles. A title naming no role, or merely repeating the employer, is rejected in favour
+of "Unknown role", which is honest and reviewable. Prose is neither.
+
 **Never guess.** Below 0.60 confidence, or missing company/role, goes to `review_queue`.
 No fabricated fit scores: no JD means no score. `fit.py` returns `None` rather than a
 number. Bad data is worse than absent data.
@@ -256,9 +264,14 @@ checked before ack.
 | `ACK_SUBJECT_DAMPING` | 0.40 | a definitive ack subject cannot be promoted by a body |
 | `MIN_VERDICT` / `MIN_MARGIN` | 0.50 / 0.15 | below either, the answer is `unresolved` |
 
-`verdict_strength` is now that margin. It used to be a per-rule constant, which is why a
-credit-card mailer, a job-board notice and a genuine acknowledgement all scored exactly
-0.55 and all cleared the 0.50 application gate.
+The margin is recorded as `separation`, and it is wired into no gate. An earlier draft of
+this section claimed `verdict_strength` had become the margin; it had not. The margin was
+captured into a variable and discarded, and `verdict_strength` still answers its own
+question, which is how self-contained the winning phrase is rather than how far it beat
+the alternatives. The review gate is calibrated on that, and conflating the two is the
+mistake this file already records once, when `confidence` and `verdict_strength` were a
+single field. The 0.55 that a credit-card mailer, a job-board notice and a genuine
+acknowledgement all shared was the sender-domain identity floor, not a verdict score.
 
 Two rules that look like details and are not:
 
@@ -273,6 +286,20 @@ real calendar invitations became `unresolved`. It is consulted only when nothing
 separable won, and only when the message contains an employment word anywhere. "Next
 steps" and "availability" are ordinary English: a newsletter headed "Next steps after
 SCOTUS strikes down tariffs" sat in the funnel as an interview for 198 days.
+
+**A phrase is only definitive when its grammar is.** "Not selected" states an outcome in
+"you were not selected" and describes a portal in Microsoft's "Roles you are not selected
+for stay visible in the Action Center". Promoting the bare phrase to `REJECT_STRONG`
+turned that acknowledgement into a confident rejection, which closes a live application,
+and closing a live thread is the most expensive error the system can make. The strong
+pattern carries the subject and the past tense; the bare form stays weak. Note the repair
+failed once before it worked, because the first version admitted the present tense, which
+is precisely the wording that caused the problem.
+
+**A pleasantry is not an invitation.** "Would love to connect" opens a cold sourcing mail
+as readily as one proposing a time, so adding it to `interview_invite` stole genuine
+outreach. What separates an invitation is the artefact: named dates, a duration, or a
+scheduler link.
 
 **Weak rejection evidence is weak.** `REJECT_WEAK` phrases appear in acknowledgements as
 readily as rejections. An ack explaining that it focuses on "candidates whose backgrounds
@@ -368,6 +395,16 @@ Adding the missing keyword would have fixed one role; the matcher fixes the clas
 **Comp floor never filters on absence.** Most JDs post no range. Only a *parsed* max
 below the floor disqualifies. That tolerance is right, and it is also why a parsing gap
 disables the gate silently rather than loudly.
+
+**Hash the whole description, not a prefix of it.** `jd_hash` covered `jd_text[:2000]`,
+so a parser change that appended text could not be detected. Widening the Lever reader to
+include the requirements lists left every stored Lever role at its old truncated length,
+because the first 2,000 characters were identical and the update was skipped: one Chief
+of Staff posting sat at 2,278 of its 9,434 characters and had been scored on that
+fragment, at 82. Rescored on the whole posting it is 60. Same shape as the refetch
+predicate that was not widened when a stored field was added, which made a 686-event
+backfill a silent no-op. When a field's *content* can grow, the change detector has to
+read all of it.
 
 **Read the board's own comp field before parsing prose for it.** Ashby publishes the band
 as structured JSON in `compensation.compensationTiers`, not in the description text. The
@@ -685,6 +722,23 @@ square track.
 - Claims must survive a follow-up question. Prefer "1.56 to 0.46 FTE per 100 cases"
   over "cut overhead 70%".
 
+## Two guards, and neither is sufficient
+
+`careerops corpus` and `python3 -m unittest discover -s tests` cover different things and
+a change is not verified until both pass.
+
+The corpus holds language that has actually arrived in this inbox. The unit tests hold
+language someone reasoned about, including phrasings that have never arrived but would be
+expensive if they did. On the day the classifier was rewritten, three regressions passed
+the corpus cleanly and were caught only by the unit suite: none of the 886 stored
+messages contained Microsoft's "Roles you are not selected for", and none contained a
+cold sourcing mail opening with "would love to connect". A corpus can only defend against
+mail you have already received.
+
+The reverse is also true, which is why both exist: the unit tests would not have caught a
+newsletter counted as an interview for 198 days, because nobody thought to write that
+test. Only the real corpus surfaced it.
+
 ## The corpus: 886 labelled emails
 
 `careerops corpus [--export]` re-classifies a frozen set of real messages from their
@@ -731,7 +785,6 @@ intel [--limit N] [--company X] [--refresh] [--show]
 pipeline · why <id> · event · review · stats · analytics · dashboard [--artifact]
 ```
 
-Tests: `python3 -m unittest discover -s tests -v` (36 tests, guard the state machine).
-Then `careerops corpus`, which guards the classifier against 886 real emails. Run both
-before and after any change to `classify.py`; the unit tests cover the state machine,
-the corpus covers the language.
+Tests: `python3 -m unittest discover -s tests -v` (94 tests) and `careerops corpus` (886
+labelled messages). Run both before and after any change to `classify.py`. See "Two
+guards, and neither is sufficient" above for why one passing means nothing.

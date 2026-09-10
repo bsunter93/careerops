@@ -154,9 +154,18 @@ acknowledgements as recruiter outreach and newsletters as interviews.
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests -v      # state machine
-python3 -m careerops.cli corpus               # classifier, against real mail
+python3 -m unittest discover -s tests -v      # 94 tests: state machine and classifier
+python3 -m careerops.cli corpus               # 886 real messages, labelled
 ```
+
+**Both, every time.** They cover different things and either can pass while the other
+fails. The corpus holds language that has actually arrived in one inbox; the unit tests
+hold language someone reasoned about, including phrasings that have never arrived but
+would be costly if they did. Rewriting the classifier produced three regressions that the
+corpus reported clean and the unit suite caught, because no stored message happened to
+contain the wording that broke. It runs the other way too: no unit test would have caught
+a newsletter sitting in the funnel as an interview for 198 days, because nobody thought to
+write it. Only real mail found that.
 
 The unit tests guard the state machine. The corpus is a frozen set of real messages with
 a recorded judgement for each, and it guards the language: change a pattern and it tells
