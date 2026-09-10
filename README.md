@@ -103,6 +103,7 @@ python3 -m careerops.cli refresh --open      # sync, resolve, discover, score, r
 python3 -m careerops.cli dashboard --open
 python3 -m careerops.cli demo --open          # synthetic data, separate database
 python3 -m careerops.cli corpus               # re-check the classifier against real mail
+python3 -m careerops.cli drift                # does stored data still agree with the code?
 python3 -m careerops.cli snooze 51 --days 30  # hide a prospect from Do next
 python3 -m careerops.cli serve                # powers the dashboard buttons
 ```

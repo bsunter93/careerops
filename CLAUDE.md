@@ -62,8 +62,23 @@ not a fallback.
 No fabricated fit scores: no JD means no score. `fit.py` returns `None` rather than a
 number. Bad data is worse than absent data.
 
-**A fix that reaches only new data leaves stored data permanently wrong.** This shape
-recurred four times in one day and is now the first thing to check on any rule change.
+**A fix that reaches only new data leaves stored data permanently wrong.** This shape has
+now appeared eight times. Writing it down did not stop it: it is in this file twice and
+shipped again the same evening. `careerops drift` is the mechanical version, and it is
+what to run instead of remembering.
+
+One invariant covers the family: *a derived value in the database should equal what the
+current code derives from the same source.* Seven read-only checks, exit 1 on any finding
+so it can gate a change. It reports rather than heals, because not every disagreement
+means the data is wrong: on its first run, 15 of 16 title mismatches were stale rows and
+one was the code losing a word. Auto-healing would have written the worse answer.
+
+Its last check covers the narrower sibling, a caller passing fewer inputs than the callee
+reads. A scoring component whose spread has gone flat across real data is a component
+switched off, which is what `score_pending` did to two of the seven pre-rank signals by
+never selecting the columns they read.
+
+
 Company aliases were applied in `get_or_create_company`, so they stopped the next
 duplicate but never folded the row already stored. Comp bands were read only when a role
 was first inserted, so every existing role stayed blind. `recruiter_outreach` stopped
