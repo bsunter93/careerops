@@ -468,6 +468,9 @@ def strip_company_suffix(title: Optional[str], company: Optional[str] = None) ->
 ROLE_TAIL = re.compile(r"\s+(?:position|role|opening|req(?:uisition)?|opportunity|job)\b"
                        r"(?:\s+(?:at|with|for|in)\b.*)?$", re.I)
 ROLE_LEAD = re.compile(r"^(?:open|the|our|a|an|this)\s+", re.I)
+# "Stripe's Program Manager". A job title never opens with a possessive, and the employer
+# is already carried on the company column.
+ROLE_POSSESSIVE = re.compile(r"^[A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*){0,2}[\u2019']s\s+")
 
 
 def _clean_role(s: Optional[str]) -> Optional[str]:
@@ -477,6 +480,7 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
     s = _html.unescape(_html.unescape(s)).replace("\xa0", " ")
     s = re.sub(r"&[a-z]+;|&#\d+;", " ", s)                 # any entity that survived
     s = re.sub(r"^\s*\[[^\]]{1,30}\]\s*", "", s.strip())      # "[Pipeline] Product Manager"
+    s = ROLE_POSSESSIVE.sub("", s.strip())                    # "Stripe's Program Manager"
     s = ROLE_LEAD.sub("", s.strip())                          # "open Staff, Technology Operations"
     s = ROLE_TAIL.sub("", s.strip())                          # "... position at <employer>"
     s = re.sub(r"\s*\(open\)\s*$", "", s.strip(), flags=re.I)

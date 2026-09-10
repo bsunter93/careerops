@@ -266,6 +266,22 @@ def sync(conn, query: Optional[str] = None, max_results: int = 400, newer_than: 
                                     ORDER BY occurred_at LIMIT 1""", (tid,)).fetchone() if tid else None
             if prior:
                 app_id = prior["application_id"]          # same conversation, same application
+                # ...unless the body names a different role. An ATS that titles every
+                # acknowledgement "Thank you for applying to <company>" gets all of them
+                # threaded together by Gmail: three Anthropic acks, naming three
+                # different requisitions, landed on one application and left the other
+                # two reading as unacknowledged. A role named in the body is stronger
+                # evidence of which application a message belongs to than a thread id
+                # that only reflects a reused subject line.
+                if c.role:
+                    from .resolve import _compatible
+                    cur = conn.execute("""SELECT ro.title, co.name FROM applications a
+                                          JOIN roles ro ON ro.id = a.role_id
+                                          JOIN companies co ON co.id = ro.company_id
+                                          WHERE a.id = ?""", (app_id,)).fetchone()
+                    if cur and cur["title"] and not _compatible(c.role, cur["title"],
+                                                                cur["name"] or ""):
+                        app_id = None
             elif c.company and creates_application(c):
                 cid = db.get_or_create_company(conn, c.company)
                 # An acknowledgement often names no role: "Thank you for applying to
