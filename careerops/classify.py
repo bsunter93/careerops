@@ -142,7 +142,12 @@ REJECT_STRONG = [
     # "We've made the decision to not move forward at this time" is the infinitive, not
     # the gerund, and matched neither this nor "will not be moving". PandaDoc's
     # rejection survived only on "keep your resume on file", which is weak evidence.
-    r"\bnot (?:be )?(?:proceeding|mov(?:e|ing) forward|going forward|continuing)\b",
+    # The negation takes an infinitive on either side: "decision TO NOT move forward"
+    # and "decision NOT TO move forward" are the same sentence, and covering only the
+    # first let a rejection through as an acknowledgement. Cover the form, not the
+    # instance, which is the third time this pattern family has been widened.
+    r"\bnot (?:be |to |to be )?(?:proceed(?:ing)?|mov(?:e|ing) forward|"
+    r"go(?:ing)? forward|continu(?:e|ing)|progress(?:ing)?)\b",
     # "decided to proceed with other candidates" is as definitive as "decided not to",
     # and matches none of the negated patterns above. One pattern covers the family:
     # proceed/move forward/continue/pursue, in any inflection, with other/another.
