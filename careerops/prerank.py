@@ -186,11 +186,20 @@ def _comp_score(lo: "Optional[int]", hi: "Optional[int]", floor: int, target: in
         return 0.55
     if hi < floor:
         return 0.02
-    if lo and lo >= target:
+    if not lo:
+        return 0.60 if hi >= target else 0.45
+    # Read the bottom of the band, not the top. This file originally scored on `hi` and
+    # rated Autodesk's Chief of Staff 97.6 while the model gave it 63, whose stated
+    # reason was that the published range starts at $146K against a $175K floor. The
+    # architecture notes already said so: comp_override grants only when even the bottom
+    # clears the bar, because a $270-310K posting is a role that might pay $270K. An
+    # offer lands somewhere in the band, and the bottom is what to plan against.
+    if lo >= target:
         return 1.00
-    if hi >= target:
-        return 0.85
-    return 0.45 + 0.40 * max(0.0, (hi - floor) / max(1, target - floor))
+    if lo >= floor:
+        return 0.72 + 0.28 * (lo - floor) / max(1, target - floor)
+    # Band straddles the floor: reachable, but the offer may well not clear it.
+    return 0.30 + 0.25 * max(0.0, min(1.0, (hi - floor) / max(1, target - floor)))
 
 
 def _years_gap(jd: str, have: int = 10) -> float:
