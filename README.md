@@ -137,6 +137,15 @@ Five rules do most of the work:
   written to prevent the next bad row while leaving every existing one standing. Corrective
   rules now ship with their retroactive half and run on every `resolve`.
 
+Discovery is a funnel with three tiers, and the order is the point: free regex gates, then
+a free deterministic pre-rank, then the model on whatever reaches the top. The middle tier
+exists because one payer publishes 19,443 postings and "Pharmacy Operations Lead
+Representative" passes a title gate written for "Operations Lead". Skipping the bottom 40%
+of the pre-ranked queue still reaches 33 of the 36 roles the model rated 70 or better.
+
+Its strongest signal is a reverse ATS match: the vocabulary comes out of your own resume,
+so it needs no maintenance and updates when you edit it.
+
 The classifier scores every candidate verdict and takes the winner only if it beats the
 runner-up by a margin; anything closer is `unresolved` and goes to review. Weighting
 evidence by *where* it appeared matters more than the patterns themselves: a bare word in
@@ -146,7 +155,10 @@ acknowledgements as recruiter outreach and newsletters as interviews.
 ## Limits
 
 - Self-hosted and single-user by design. It reads your inbox; that should stay on your machine.
-- Public board APIs only. No LinkedIn or Indeed scraping.
+- Public board APIs only: Greenhouse, Ashby, Lever, Workday. No LinkedIn or Indeed scraping.
+- The first three were the wrong three. A watchlist built on them cannot reach Google,
+  Adobe, Meta, Microsoft, NVIDIA, Amazon, Oracle, Salesforce or Walmart; of 34 employers
+  already in the inbox, one was reachable. Workday is where the rest are.
 - Page counts for generated resumes are verified through real Word via AppleScript, because
   Quick Look substitutes fonts and will happily report one page for a two-page document.
 - `resume/master.json` is yours to write. The generator is generic; the content is not.

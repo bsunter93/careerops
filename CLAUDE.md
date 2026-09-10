@@ -433,8 +433,81 @@ employer were also its two lowest-paying. `level` is NULL on every row; until so
 populates it, comp is the only counterweight, which is why the band must be read
 correctly.
 
-**Public board APIs only** (Greenhouse, Ashby, Lever). No LinkedIn/Indeed scraping:
-against their terms, brittle, and unnecessary.
+**Public board APIs only** (Greenhouse, Ashby, Lever, Workday). No LinkedIn/Indeed
+scraping: against their terms, brittle, and unnecessary.
+
+**The first three were the wrong three.** A watchlist of Greenhouse/Ashby/Lever companies
+structurally cannot surface Google, Adobe, Meta, Netflix, Microsoft, NVIDIA, Amazon,
+Oracle, Salesforce or Walmart. Of 34 employers with applications already in the inbox,
+exactly one was reachable on those boards. The obvious widening move, harvesting
+thousands more Greenhouse slugs, would have added startups and not one of those names.
+Workday is where they are, and it publishes the same kind of endpoint its own careers
+page calls.
+
+**Workday costs two requests per role, so the title gate runs first.** The list endpoint
+returns a title, a path and "Posted 30+ Days Ago"; the description, the real `startDate`
+and the pay band each need a second request per posting. Details are fetched only for
+what survives the title filter. `startDate` matters because posting age outranks fit in
+the Do-next ordering and the list offers only relative text.
+
+**Search depth, not search breadth, is what costs.** Querying all 32 whitelist titles 400
+postings deep is 640 list requests per tenant; a 16-tenant sweep ran 47 minutes and wrote
+nothing before it was killed. Workday returns a relevance-ranked set, so three pages per
+term costs 75 requests and finds *more*, because the terms that matter are no longer
+starved. Note the repair introduced its own bug first: capping the probe list at the
+eight shortest phrases kept "bizops" and dropped "business operations", "strategy and
+operations" and "revenue operations". Shortest-first is right for collapsing supersets
+and wrong for deciding what matters.
+
+**Tenant discovery is not guessable and should not be scraped.** Brute-forcing site names
+missed Autodesk, whose site is called `Ext`, and 14 of 15 others. Workday returns 406 to
+non-browser HTML requests, which is a boundary to respect rather than work around.
+Harvesting `tenant:host:site` triples out of Common Crawl URLs found 4,449 real ones. The
+slug carries all three parts in one field so the watchlist shape is unchanged.
+
+## The pre-rank tier
+
+`prerank.py` sits between the regex gates and the model. Two tiers were enough at 87
+curated companies; they are not once one payer publishes 19,443 postings and "Pharmacy
+Operations Lead Representative" passes a gate written for "Operations Lead". `fit` orders
+by pre-rank rather than `discovered_at`, which has nothing to do with relevance and let a
+single large tenant fill an entire scoring run.
+
+**It was built against the 285 roles the model had already scored**, because a pre-rank
+is only worth shipping if it puts what the model liked near the top. The first version
+correlated at 0.203, which is noise. Diagnosing rather than tuning showed why: every
+candidate had already passed the title gate, so level and function were saturated, and
+the component with the most variance carried the least weight.
+
+**The missing signal was named by the model itself.** Across the 193 roles it scored under
+40, domain mismatch appears in 71% of the stated reasons, far ahead of level, comp or
+management scope. There was no feature for it. Adding one took correlation to 0.44.
+
+**Domain is read twice and averaged.** `resume_terms()` lifts vocabulary straight out of
+`master.json`, a reverse ATS match: it needs no maintenance, updates when the resume is
+edited, and removes the author's guesswork. Alone it scores 0.43, near-identical to a
+hand-written list at 0.45, and the average of both reaches 0.47. Both are kept because
+they fail differently: a resume never says out loud that a posting is about ad tech.
+
+**Judge it on budget, not on recall@20.** The question is how much can be skipped without
+losing good roles:
+
+| skip the bottom | roles scoring >= 70 still reached |
+|---|---|
+| 25% | 36 / 36 |
+| 40% | 33 / 36 |
+| 50% | 32 / 36 |
+| 70% | 24 / 36, past the safe point |
+
+A rank correlation of 0.47 orders coarsely, so this triages, it does not judge. Every
+component is returned with the score so a wrong rank traces to the signal that caused it.
+The weights are fitted on 285 samples from one candidate, not derived; re-measure after
+any real profile change.
+
+**Select what the pre-rank reads.** `score_pending` first passed `None` for comp and
+posting date because the query never selected them, collapsing two of seven components to
+their unknown-value constants for every row. A third of the ranking was switched off in
+the same commit that introduced it.
 
 ## Posting age beats fit
 
