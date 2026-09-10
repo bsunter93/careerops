@@ -1,8 +1,14 @@
 """Job discovery via public ATS board APIs.
 
 Only endpoints companies publish for their own job boards. No scraping of
-LinkedIn/Indeed: against their terms, brittle, and unnecessary since most
-targets sit on Greenhouse, Ashby, or Lever anyway.
+LinkedIn/Indeed: against their terms, brittle, and unnecessary.
+
+Four boards, and the fourth exists because the first three were the wrong ones.
+A watchlist of 87 Greenhouse/Ashby/Lever companies could never surface Google,
+Adobe, Meta, Netflix, Microsoft, NVIDIA, Amazon, Oracle, Salesforce or Walmart:
+of 34 employers with applications already in the inbox, exactly one was reachable
+on those three. They are on Workday, which publishes the same kind of endpoint its
+own careers page calls.
 """
 import json, re, hashlib, urllib.request, urllib.error
 from functools import lru_cache
@@ -16,7 +22,82 @@ ENDPOINTS = {
     "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true",
     "ashby":      "https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true",
     "lever":      "https://api.lever.co/v0/postings/{slug}?mode=json",
+    # Workday's slug carries three parts, "tenant:host:site", because a tenant has no
+    # single canonical board: adobe:wd5:external_experienced. Keeping it in one field
+    # means config.json and the watchlist shape do not change.
+    "workday":    "https://{tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}",
 }
+WORKDAY_PAGE = 20          # postings per list request
+WORKDAY_MAX = 400          # per board per sweep; large tenants post thousands
+
+
+def _post(url: str, payload: dict) -> Optional[dict]:
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"User-Agent": UA, "Content-Type": "application/json",
+                 "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _workday(slug: str, titles: Iterable[str] = ()) -> list:
+    """Two requests per role, and only for roles that already look right.
+
+    Workday's list endpoint returns a title, a path and "Posted 30+ Days Ago"; the
+    description, the real posting date and the pay band all live behind a second request
+    per posting. Fetching every one would mean thousands of requests per tenant, so the
+    title filter runs first, against the list, and details are fetched only for what
+    survives. That is the same order the rest of the pipeline uses: cheapest gate first.
+    """
+    try:
+        tenant, host, site = slug.split(":")
+    except ValueError:
+        return []
+    base = ENDPOINTS["workday"].format(tenant=tenant, host=host, site=site)
+    # Search server-side rather than paging blind. CVS Health publishes 19,443 postings;
+    # walking the first 400 of them in posting order would miss essentially everything,
+    # since the ordering has nothing to do with relevance. Workday accepts a searchText,
+    # so each target title becomes one query and the tenant does the filtering.
+    seen, shortlist = set(), []
+    terms = list(titles) or [""]
+    for term in terms:
+        offset = 0
+        while offset < WORKDAY_MAX:
+            page = _post(f"{base}/jobs", {"appliedFacets": {}, "limit": WORKDAY_PAGE,
+                                          "offset": offset, "searchText": term})
+            posts = (page or {}).get("jobPostings") or []
+            if not posts:
+                break
+            for j in posts:
+                path = j.get("externalPath")
+                t = (j.get("title") or "").lower()
+                # Workday's search is loose, so the real title gate still runs here.
+                if path in seen or (titles and not any(_kw(k).search(t) for k in titles)):
+                    continue
+                seen.add(path)
+                shortlist.append(j)
+            offset += WORKDAY_PAGE
+            if offset >= int((page or {}).get("total") or 0):
+                break
+    out = []
+    for j in shortlist:
+        d = _get(base + (j.get("externalPath") or ""))
+        info = (d or {}).get("jobPostingInfo") or {}
+        jd = _strip_html(info.get("jobDescription") or "")
+        out.append({
+            "title": j.get("title"),
+            "location": info.get("location") or j.get("locationsText"),
+            "url": info.get("externalUrl"),
+            "jd_text": jd,
+            "external_id": str(info.get("jobReqId") or info.get("id") or ""),
+            # startDate is a real date; the list only offers "Posted 30+ Days Ago", and
+            # posting age outranks fit in the Do-next ordering.
+            "posted_at": (info.get("startDate") or "")[:19],
+        })
+    return out
 
 
 def _get(url: str) -> Optional[dict]:
@@ -47,8 +128,14 @@ def _epoch_iso(ms) -> "Optional[str]":
         return None
 
 
-def fetch(board: str, slug: str) -> list:
-    """Normalize each board's shape into one dict."""
+def fetch(board: str, slug: str, titles: Iterable[str] = ()) -> list:
+    """Normalize each board's shape into one dict.
+
+    `titles` is used only by boards that need a second request per posting; the three
+    that return everything in one response ignore it.
+    """
+    if board == "workday":
+        return _workday(slug, titles)
     data = _get(ENDPOINTS[board].format(slug=slug))
     if not data:
         return []
@@ -303,7 +390,7 @@ def discover(conn, watchlist: list, titles: list, locations: list,
              "excluded_title": 0, "below_comp": 0, "failed": []}
     for w in watchlist:
         stats["boards"] += 1
-        jobs = fetch(w["board"], w["slug"])
+        jobs = fetch(w["board"], w["slug"], titles)
         if not jobs:
             stats["failed"].append(f'{w["company"]}({w["board"]}:{w["slug"]})')
             continue
