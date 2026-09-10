@@ -33,22 +33,46 @@ def _rows(conn, sql, args=()):
 
 
 def classification_drift(conn, limit: int = 0) -> dict:
-    """Re-classify every stored event from its own text and compare to what is stored."""
+    """Re-classify every stored message and compare to what is stored.
+
+    Event type is compared per event, because each event carries its own verdict.
+
+    Role is compared only against the *earliest* event of an application, because that is
+    the one that established its identity. The first version of this check compared every
+    event to its application's title and reported 16 findings of which 13 were nonsense:
+    a Stripe application accumulated eight events whose bodies each name a different
+    requisition, and a rejection mentioning a sibling posting is not evidence the stored
+    title is wrong. A check that cries wolf is worse than no check, because the next real
+    finding is read as noise.
+    """
     from .classify import classify
     bad_type, bad_role = [], []
-    for r in _rows(conn, """SELECT e.id, e.subject, e.sender, e.body, e.type,
-                                   co.name company, ro.title
+    first_of = {}
+    for r in _rows(conn, """SELECT e.id, e.application_id, e.subject, e.sender, e.body,
+                                   e.type, ro.title, e.occurred_at
                             FROM events e
                             LEFT JOIN applications a ON a.id = e.application_id
                             LEFT JOIN roles ro ON ro.id = a.role_id
-                            LEFT JOIN companies co ON co.id = ro.company_id
-                            WHERE e.source = 'gmail' AND e.subject IS NOT NULL"""):
+                            WHERE e.source = 'gmail' AND e.subject IS NOT NULL
+                            ORDER BY e.application_id, e.occurred_at"""):
         got = classify(r["subject"] or "", r["sender"] or "", r["body"] or "")
         if got.event_type != r["type"]:
             bad_type.append((r["id"], r["type"], got.event_type, (r["subject"] or "")[:56]))
-        if (got.role and r["title"] and got.role.lower() != (r["title"] or "").lower()
-                and "unknown" not in (r["title"] or "").lower()):
-            bad_role.append((r["id"], r["title"], got.role))
+        aid = r["application_id"]
+        if aid is None or aid in first_of:
+            continue
+        first_of[aid] = True
+        stored, now = (r["title"] or "").strip(), (got.role or "").strip()
+        if not now or not stored or "unknown" in stored.lower():
+            continue
+        if now.lower() == stored.lower():
+            continue
+        # The code merely adding the employer's name, at either end, is a worse answer
+        # rather than drift. Guarding only the suffix left "Motive Senior Product
+        # Operations Manager" reported against the correct stored title.
+        if stored.lower() in now.lower():
+            continue
+        bad_role.append((r["id"], stored, now))
     return {"type_mismatch": bad_type, "role_mismatch": bad_role}
 
 
