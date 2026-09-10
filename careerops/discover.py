@@ -28,7 +28,29 @@ ENDPOINTS = {
     "workday":    "https://{tenant}.{host}.myworkdayjobs.com/wday/cxs/{tenant}/{site}",
 }
 WORKDAY_PAGE = 20          # postings per list request
-WORKDAY_MAX = 400          # per board per sweep; large tenants post thousands
+WORKDAY_TERM_PAGES = 3     # depth per search term; the results are relevance-ranked
+
+
+def _probe_terms(titles: Iterable[str]) -> list:
+    """Collapse the title whitelist into a few distinct search probes.
+
+    Drops phrases that merely extend a shorter one already being searched, since a search
+    engine returns the same postings for "program manager" and "senior program manager".
+    On the current whitelist that removes 7 of 32, so the collapse is not where the
+    saving comes from: depth is. Querying each term 400 deep cost 640 list requests per
+    tenant and made a 16-tenant sweep unusable; three pages of a relevance-ranked result
+    set costs 75 and finds more, because the terms that matter are no longer starved.
+
+    Deliberately uncapped. An earlier version kept only the eight shortest probes, which
+    preferred "bizops" over "business operations", "strategy and operations" and
+    "revenue operations" -- the three phrases this search exists to find.
+    """
+    kept = []
+    for t in sorted({(x or "").lower().strip() for x in titles if x}, key=len):
+        if any(k in t for k in kept):
+            continue
+        kept.append(t)
+    return kept
 
 
 def _post(url: str, payload: dict) -> Optional[dict]:
@@ -62,10 +84,10 @@ def _workday(slug: str, titles: Iterable[str] = ()) -> list:
     # since the ordering has nothing to do with relevance. Workday accepts a searchText,
     # so each target title becomes one query and the tenant does the filtering.
     seen, shortlist = set(), []
-    terms = list(titles) or [""]
+    terms = _probe_terms(titles) or [""]
     for term in terms:
         offset = 0
-        while offset < WORKDAY_MAX:
+        while offset < WORKDAY_PAGE * WORKDAY_TERM_PAGES:
             page = _post(f"{base}/jobs", {"appliedFacets": {}, "limit": WORKDAY_PAGE,
                                           "offset": offset, "searchText": term})
             posts = (page or {}).get("jobPostings") or []
