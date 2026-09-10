@@ -163,8 +163,14 @@ def score_pending(conn, limit: int = 10, rescore: bool = False) -> dict:
         SELECT r.id, r.title, r.location, r.jd_text, c.name company
         FROM roles r JOIN companies c ON c.id = r.company_id
         LEFT JOIN applications a ON a.role_id = r.id
-        WHERE r.jd_text IS NOT NULL AND LENGTH(r.jd_text) > 200 {cond}
-        ORDER BY r.discovered_at DESC LIMIT ?""", (limit,)).fetchall()
+        WHERE r.jd_text IS NOT NULL AND LENGTH(r.jd_text) > 200 {cond}""").fetchall()
+    # Spend the model budget on the top of the deterministic pre-rank rather than on
+    # whatever was discovered most recently. Discovery order has nothing to do with
+    # relevance, and once the watchlist widened past the curated 87 it stopped being a
+    # harmless default: a payer publishing 19,443 postings can fill a whole run.
+    from .prerank import prerank
+    rows = sorted(rows, key=lambda r: -prerank(r["title"], r["jd_text"], None, None,
+                                               None)["score"])[:limit]
     stats = {"scored": 0, "skipped": 0}
     prof = PROFILE.read_text()
     for r in rows:
