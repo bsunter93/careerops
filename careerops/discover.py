@@ -55,6 +55,7 @@ def fetch(board: str, slug: str) -> list:
     out = []
     if board == "greenhouse":
         for j in data.get("jobs", []):
+            cmin, cmax = _greenhouse_comp(j)
             out.append({
                 "title": j.get("title"),
                 "location": (j.get("location") or {}).get("name"),
@@ -62,6 +63,7 @@ def fetch(board: str, slug: str) -> list:
                 "jd_text": _strip_html(j.get("content", "")),
                 "external_id": str(j.get("id")),
                 "posted_at": (j.get("first_published") or j.get("updated_at") or "")[:19],
+                "comp_min": cmin, "comp_max": cmax,
             })
     elif board == "ashby":
         for j in data.get("jobs", []):
@@ -77,15 +79,62 @@ def fetch(board: str, slug: str) -> list:
             })
     elif board == "lever":
         for j in data:
+            cmin, cmax = _lever_comp(j)
+            # Lever splits the posting across fields; the requirements lists and the
+            # closing block are where the pay language usually sits when it is prose.
+            body = " ".join(filter(None, [
+                j.get("descriptionPlain") or j.get("description") or "",
+                j.get("additionalPlain") or j.get("additional") or "",
+                j.get("salaryDescriptionPlain") or "",
+                " ".join((x.get("text") or "") + " " + (x.get("content") or "")
+                         for x in (j.get("lists") or []))]))
             out.append({
                 "title": j.get("text"),
                 "location": (j.get("categories") or {}).get("location"),
                 "url": j.get("hostedUrl"),
                 "posted_at": _epoch_iso(j.get("createdAt")),
-                "jd_text": _strip_html(j.get("descriptionPlain") or j.get("description") or ""),
+                "jd_text": _strip_html(body),
                 "external_id": str(j.get("id")),
+                "comp_min": cmin, "comp_max": cmax,
             })
     return [o for o in out if o.get("title")]
+
+
+def _lever_comp(j: dict):
+    """Lever returns salaryRange as structured JSON and omits the figures from the
+    description entirely, so no amount of prose parsing can recover them. A Chief of
+    Staff posting paying $180,000-$220,000 read as "comp unconfirmed, verify it meets
+    the floor" while the numbers sat in the API response.
+    """
+    r = j.get("salaryRange") or {}
+    if (r.get("currency") or "USD") != "USD":
+        return (None, None)
+    if "year" not in (r.get("interval") or "per-year-salary"):
+        return (None, None)          # hourly or monthly is not a floor comparison
+    lo, hi = r.get("min"), r.get("max")
+    return (int(lo) if lo else None, int(hi) if hi else None)
+
+
+def _greenhouse_comp(j: dict):
+    """Greenhouse's public board API does not currently return pay_input_ranges: across
+    six boards and 1,881 postings it yielded a band for none of them. Greenhouse comp
+    therefore comes from the description prose, which is where Wiz publishes
+    $211,000-$290,500 and where extract_comp finds it.
+
+    This is kept as a correct-when-present fallback rather than removed, but it is
+    deliberately documented as returning nothing today, so nobody reads its existence as
+    evidence that Greenhouse comp is covered structurally. It is not.
+    """
+    lo = hi = None
+    for r in (j.get("pay_input_ranges") or []):
+        if (r.get("currency_type") or "USD") != "USD":
+            continue
+        a, b = r.get("min_cents"), r.get("max_cents")
+        a = int(a) // 100 if a else None
+        b = int(b) // 100 if b else None
+        if a: lo = a if lo is None else min(lo, a)
+        if b: hi = b if hi is None else max(hi, b)
+    return (lo, hi)
 
 
 def _ashby_comp(j: dict):
