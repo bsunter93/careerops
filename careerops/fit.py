@@ -160,7 +160,8 @@ def score_pending(conn, limit: int = 10, rescore: bool = False) -> dict:
     already-scored roles (use after changing profile.md or the prompt)."""
     cond = "" if rescore else "AND (a.id IS NULL OR a.fit_score IS NULL)"
     rows = conn.execute(f"""
-        SELECT r.id, r.title, r.location, r.jd_text, c.name company
+        SELECT r.id, r.title, r.location, r.jd_text, c.name company,
+               r.comp_min, r.comp_max, r.posted_at
         FROM roles r JOIN companies c ON c.id = r.company_id
         LEFT JOIN applications a ON a.role_id = r.id
         WHERE r.jd_text IS NOT NULL AND LENGTH(r.jd_text) > 200 {cond}""").fetchall()
@@ -168,9 +169,15 @@ def score_pending(conn, limit: int = 10, rescore: bool = False) -> dict:
     # whatever was discovered most recently. Discovery order has nothing to do with
     # relevance, and once the watchlist widened past the curated 87 it stopped being a
     # harmless default: a payer publishing 19,443 postings can fill a whole run.
+    #
+    # The comp band and the posting date have to be selected for this, not passed as
+    # None. Two of the seven pre-rank components read them, and handing over nulls
+    # flattens both to their unknown-value constant for every row, which is a third of
+    # the ranking signal silently switched off.
     from .prerank import prerank
-    rows = sorted(rows, key=lambda r: -prerank(r["title"], r["jd_text"], None, None,
-                                               None)["score"])[:limit]
+    rows = sorted(rows, key=lambda r: -prerank(r["title"], r["jd_text"], r["comp_min"],
+                                               r["comp_max"], r["posted_at"])["score"]
+                  )[:limit]
     stats = {"scored": 0, "skipped": 0}
     prof = PROFILE.read_text()
     for r in rows:
