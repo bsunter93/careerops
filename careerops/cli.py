@@ -510,6 +510,30 @@ def cmd_corpus(a):
     return 1 if r["regressions"] else 0
 
 
+def cmd_drift(a):
+    """Report derived values that no longer match what the code derives.
+
+    Every rule fixed in this repository has had a version that reached new rows and left
+    old ones alone. This is the check that names them, and it is read-only: healing is
+    `resolve`. Exit code 1 when anything is found, so it can gate a change.
+    """
+    from . import drift
+    conn = db.connect(a.db)
+    res = drift.run(conn)
+    total = sum(len(v) for v in res.values())
+    for name, items in res.items():
+        if not items:
+            print(f"OK   {name}")
+            continue
+        print(f"--   {name}: {len(items)}")
+        for it in items[:a.show]:
+            print("       " + "  ".join(str(x)[:52] for x in it))
+        if len(items) > a.show:
+            print(f"       ... {len(items) - a.show} more")
+    print(f"\n{total} finding(s)." + ("" if total else "  Stored data agrees with the code."))
+    return 1 if total else 0
+
+
 def cmd_doctor(a):
     import pathlib, importlib, os
     root = pathlib.Path(__file__).resolve().parent.parent
@@ -563,6 +587,9 @@ def main(argv=None):
     cp.add_argument("--export", action="store_true", help="add new events, keep judgements")
     cp.add_argument("--path", default=None)
     cp.set_defaults(fn=cmd_corpus)
+    dr = sub.add_parser("drift", help="does stored data still agree with the code?")
+    dr.add_argument("--show", type=int, default=6, help="examples to print per finding")
+    dr.set_defaults(fn=cmd_drift)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
     sv = sub.add_parser("serve", help="local server powering the dashboard resume buttons")
