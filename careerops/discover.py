@@ -335,7 +335,15 @@ def discover(conn, watchlist: list, titles: list, locations: list,
                 stats["below_comp"] += 1
                 continue
             stats["matched"] += 1
-            h = hashlib.sha1((j.get("title", "") + jd[:2000]).encode()).hexdigest()[:16]
+            # Hash the whole description, not a prefix of it. The 2,000-character cap
+            # meant a parser change that ADDED text to the end could not be detected:
+            # widening the Lever reader to include the requirements lists left every
+            # stored Lever role at its old truncated length, because the first 2,000
+            # characters were identical and the row was skipped. One Chief of Staff
+            # posting sat at 2,278 of its 9,434 characters and was scored on that.
+            # Same shape as the refetch predicate that was not widened when a stored
+            # field was added, which made a 686-event backfill a silent no-op.
+            h = hashlib.sha1((j.get("title", "") + jd).encode()).hexdigest()[:16]
             existing = conn.execute(
                 "SELECT id, jd_hash FROM roles WHERE company_id=? AND title=? COLLATE NOCASE",
                 (cid, j["title"])).fetchone()

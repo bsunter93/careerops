@@ -355,7 +355,13 @@ class TestConditionalOutcomes(unittest.TestCase):
                       "Thanks for applying to Senior Capacity Program Manager at Contoso. "
                       "Roles you are not selected for stay visible in the Action Center.")
         self.assertGreater(ms.confidence, 0.5)
-        self.assertLess(ms.verdict_strength, 0.5)
+        # Evidence scoring resolves this earlier than the strength gate ever sees it.
+        # "Roles you are not selected for stay visible" is Microsoft describing its
+        # portal, and an acknowledgement subject scores 1.0 against weak rejection
+        # evidence at 0.55, so the message is read as what it is. The point the test was
+        # written to defend still holds and is asserted directly: a descriptive use of
+        # rejection vocabulary must not close a live application.
+        self.assertEqual(ms.event_type, "ack")
 
         # and the converse: a solid verdict is not dragged down by a vague subject
         adobe = classify("An update", "no-reply@myworkday.com",
@@ -375,12 +381,20 @@ class TestConditionalOutcomes(unittest.TestCase):
         self.assertGreaterEqual(c.verdict_strength, 0.9)
         self.assertFalse(c.held)
 
-    def test_weak_verdict_under_ack_subject_is_held(self):
+    def test_weak_verdict_under_ack_subject_does_not_close_a_row(self):
+        """Superseded mechanism, preserved requirement.
+
+        This used to assert that the rejection reading was recorded and then `held` so
+        it could not close a row. Evidence scoring removed the need: `held` requires an
+        acknowledgement subject, and under one an ack scores 1.0 while weak rejection
+        evidence scores 0.55, so no closing verdict is produced to hold. `held` now
+        fires on none of the 886 corpus messages and none of the stored events. The
+        requirement it protected is what matters, so that is what is asserted.
+        """
         c = classify("Thank you for your application!", "no-reply@careers.microsoft.com",
                      "Thanks for applying. Roles you are not selected for stay visible.")
-        self.assertEqual(c.event_type, "rejection")   # the reading is recorded honestly
-        self.assertTrue(c.held)                       # but it does not get to close a row
-        self.assertTrue(c.needs_review)
+        self.assertEqual(c.event_type, "ack")
+        self.assertNotIn(c.event_type, ("rejection", "offer"))
 
     def test_strong_verdict_under_ack_subject_still_closes(self):
         c = classify("Thank you for applying to Rippling", "no-reply@ashbyhq.com",

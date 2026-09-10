@@ -162,7 +162,14 @@ REJECT_STRONG = [
     # longer recruiting for JR2012976" lost to the "thank you for your interest" that
     # opened the same email.
     r"\bno longer (?:recruiting|hiring|accepting|pursuing|considering)\b",
-    r"\bnot selected\b",
+    # Only definitive with a subject attached. Bare "not selected" describes a UI as
+    # readily as an outcome: Microsoft's acknowledgement says "Roles you are not
+    # selected for stay visible in the Action Center", and promoting the bare phrase
+    # turned that into a confident rejection, which closes a live application. That is
+    # the most expensive misread available, so the bare form stays weak.
+    # Past tense only. "Roles you ARE not selected for stay visible" is Microsoft
+    # describing its portal; "you WERE not selected" is the outcome.
+    r"\byou (?:were|have been) not selected\b",
 ]
 # Phrases that appear in acknowledgements as readily as in rejections, so they are
 # evidence only in the absence of something better. Anduril's acknowledgement explains
@@ -172,7 +179,7 @@ REJECT_STRONG = [
 REJECT_WEAK = [
     r"\bkeep your (?:information|resume|r\u00e9sum\u00e9|details|profile|application) on file\b",
     r"\bnot (?:a |the )?(?:best|right|strong(?:est)?) (?:match|fit)\b",
-    r"\bother candidates\b",
+    r"\bother candidates\b", r"\bnot selected\b",
 ]
 
 EVENT_PATTERNS = [
@@ -198,8 +205,15 @@ EVENT_PATTERNS = [
                            r"\bset up (?:some )?time to (?:chat|talk|speak|connect|meet)\b",
                            r"\bshare (?:some )?(?:dates|times|your availability)\b",
                            r"\b\d{1,2}\s?-?\s?min(?:ute)?s?\s+(?:zoom|phone|video|intro|initial)?\s*(?:call|chat|meeting|conversation)\b",
-                           r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)",
-                           r"\b(?:love|like) to (?:connect|chat|speak|talk)\b"]),
+                           r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)"]),
+                           # "would love to connect" is deliberately NOT here. A cold
+                           # recruiter opens with it as readily as someone proposing a
+                           # time ("I came across your profile and would love to connect
+                           # about an opening"), and treating the pleasantry as the
+                           # signal stole those from recruiter_outreach. What separates
+                           # an invitation is the concrete artefact: named dates, a
+                           # duration, or a scheduler link. Headway's invite still lands
+                           # on "dates and times that work" and its Ashby meeting URL.
     ("assessment",        [r"\bonline assessment\b", r"\btake[- ]home\b", r"\bcoding challenge\b",
                            r"\bskills assessment\b", r"\bcomplete (?:an|the) assessment\b"]),
     ("recruiter_outreach",[r"\bsharing your resume\b", r"\brecruiter\b",
@@ -334,6 +348,7 @@ class Classification:
     trigger: Optional[str] = None      # literal phrase that fired the classification
     confidence: float = 0.0            # how sure we are of company + role, NOT of the verdict
     verdict_strength: float = 1.0      # how sure we are of event_type, on its own evidence
+    separation: float = 0.0            # margin the winning verdict beat the runner-up by
     held: bool = False                 # verdict recorded but withheld from status derivation
     held_reason: Optional[str] = None
     reasons: list = field(default_factory=list)
@@ -446,6 +461,15 @@ def strip_company_suffix(title: Optional[str], company: Optional[str] = None) ->
     return title[:m.start()].strip() if m else title
 
 
+# "the Strategy and Operations position at Maybell Quantum Industries" is one phrase an
+# acknowledgement uses, and strip_company_suffix cannot remove the tail because the legal
+# name in the sentence ("... Industries") is longer than the company as resolved. Cut at
+# the connective instead of trying to match the employer.
+ROLE_TAIL = re.compile(r"\s+(?:position|role|opening|req(?:uisition)?|opportunity|job)\b"
+                       r"(?:\s+(?:at|with|for|in)\b.*)?$", re.I)
+ROLE_LEAD = re.compile(r"^(?:open|the|our|a|an|this)\s+", re.I)
+
+
 def _clean_role(s: Optional[str]) -> Optional[str]:
     if not s:
         return None
@@ -453,6 +477,8 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
     s = _html.unescape(_html.unescape(s)).replace("\xa0", " ")
     s = re.sub(r"&[a-z]+;|&#\d+;", " ", s)                 # any entity that survived
     s = re.sub(r"^\s*\[[^\]]{1,30}\]\s*", "", s.strip())      # "[Pipeline] Product Manager"
+    s = ROLE_LEAD.sub("", s.strip())                          # "open Staff, Technology Operations"
+    s = ROLE_TAIL.sub("", s.strip())                          # "... position at <employer>"
     s = re.sub(r"\s*\(open\)\s*$", "", s.strip(), flags=re.I)
     s = re.sub(r"\s*\((?:ID|Job ID|Req(?:uisition)? ID)[:\s#]*[\w-]+\)", "", s, flags=re.I)
     s = re.sub(r"^(?:R|JR|REQ|JOB)[-_ ]?\d{4,}\s+", "", s, flags=re.I)      # leading req id
@@ -719,7 +745,7 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
         c.reasons.append("aggregator:" + dom)
         return c
 
-    etype, trigger, _sep = _event_type(subject, strip_boilerplate(body or ""))
+    etype, trigger, separation = _event_type(subject, strip_boilerplate(body or ""))
     c.event_type = etype
     c.trigger = trigger
     if trigger:
@@ -785,6 +811,28 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
     # acknowledgement, is the shape of Microsoft's confirmation email. Record it, but do
     # not let it close the row: the event stands as evidence and goes to review instead.
     c.role = strip_company_suffix(c.role, c.company)
+    # One gate for every path that can set a role. role_from_body validates its own
+    # capture; the subject rules and company-was-actually-role never did, which is how
+    # "candidacy for the", "joining Cloudflare and the time you invested in your
+    # application", a bare "position", and a clause from a sentence about quantum
+    # superposition ("particles can exist in a superposition of multiple states at once")
+    # all became job titles. A title naming no role, and a title that merely repeats the
+    # employer, are both worse than admitting the role is unknown: "Unknown role" is
+    # honest and shows up in review, prose is neither.
+    if c.role:
+        _r = c.role.strip()
+        _bad = (not ROLE_NOUN.search(_r)
+                or (c.company and _r.lower() == c.company.lower())
+                or len(_r.split()) > 12)
+        if _bad:
+            c.reasons.append(f'role-rejected:"{_r[:44]}"')
+            c.role = None
+    # Separation is recorded, not wired into any gate. It reports how separable the
+    # verdict was, which verdict_strength does not: that answers a different question
+    # (how self-contained the winning phrase is) and the review gate is calibrated on
+    # it. Two numbers, two jobs, and conflating them is the mistake this file already
+    # made once when confidence and verdict_strength were the same field.
+    c.separation = separation
     c.verdict_strength = _verdict_strength(c.event_type, subject, body or "")
     if (c.event_type in CLOSING and c.verdict_strength < WEAK_VERDICT
             and ACK_SUBJECT.search(subject)):
