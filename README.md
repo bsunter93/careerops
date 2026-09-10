@@ -27,7 +27,7 @@ Board discovery works with no credentials either:
 ```bash
 cp config.example.json config.json && cp profile.example.md profile.md
 .venv/bin/python -m careerops.cli init
-.venv/bin/python -m careerops.cli discover     # polls live Greenhouse/Ashby/Lever boards
+.venv/bin/python -m careerops.cli discover     # polls live Greenhouse/Ashby/Lever/Workday boards
 ```
 
 Credentials only buy you two things: an API key scores the roles discovery finds, and
@@ -50,7 +50,7 @@ companies -> roles -> applications -> events
 ## What it does
 
 ```
-discover   poll Greenhouse / Ashby / Lever board APIs for matching roles
+discover   poll Greenhouse / Ashby / Lever / Workday board APIs for matching roles
 fit        score each JD against profile.md, with reasoning, via the Anthropic API
 resume     generate a tailored one-page .docx from one master file plus the fit analysis
 sync       read Gmail, classify each message, attach it to the right application

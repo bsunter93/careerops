@@ -258,6 +258,16 @@ thread and leaves incompatible roles apart. And one-off calendar confirmations g
 own thread, so interview confirmations for an existing loop stay orphaned; those need a
 human. Never infer a merge from timestamps alone.
 
+**Enforce that at ingestion too, not only in `resolve`.** An ATS titles every
+acknowledgement "Thank you for applying to <company>", so Gmail threads them together, and
+ingestion was treating a shared `thread_id` as proof of a shared application. Three
+Anthropic acknowledgements sent inside eight minutes, naming three different requisitions,
+all landed on one application, and the board showed two of them as never acknowledged.
+Ingestion now checks the incoming role against the prior's stored title with `_compatible`
+before adopting its `application_id`, and declines the thread when they disagree. The
+clustering rule and the ingestion rule are the same rule; a rule enforced in only one of
+the two paths is half a rule.
+
 **Widen the refetch predicate whenever a stored field is added.** It only re-fetched when
 the body was missing or CSS, so adding `thread_id` left the backfill a silent no-op across
 686 events.
@@ -334,11 +344,15 @@ happens next, were all filed as rejections until weak evidence was scored as wea
 Definitive phrases moved the other way: `no longer recruiting` and `not selected` state
 the outcome outright and belong in `REJECT_STRONG`.
 
-**English defeats patterns in mundane ways.** Four gaps, each costing a real rejection:
+**English defeats patterns in mundane ways.** Five gaps, each costing a real rejection:
 contractions ("we won't be moving forward" defeats `\bnot\b`), the infinitive ("decided
 to not move forward" where every pattern had the gerund), the formal register ("we regret
-to inform you"), and refusals that never mention moving at all ("we are unable to offer
-you an interview"). Add the form, not the instance.
+to inform you"), refusals that never mention moving at all ("we are unable to offer you an
+interview"), and the infinitive a second time, on its other side ("the difficult decision
+not to move forward", which the first infinitive fix did not reach). Add the form, not the
+instance, and note how hard that is: the fourth fix looked like it had covered the form
+and had covered one placement of it. English puts the infinitive on either side of the
+negation. Quantinuum's rejection sat misread as an acknowledgement until it did.
 
 ## Finding the decision maker
 
