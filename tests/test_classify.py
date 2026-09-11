@@ -315,7 +315,7 @@ class TestConditionalOutcomes(unittest.TestCase):
 
     Standard acknowledgements say "If you are not selected for this position, keep an eye
     on our jobs page". Matching "not selected" there turned two same-day acks into
-    rejections, closing a live Figma application and a Headway one submitted that morning.
+    rejections, closing one live application and another submitted that morning.
     Closing a live thread is the most destructive misread available: the role vanishes
     from Do next and the record says it is dead.
     """
@@ -432,10 +432,10 @@ class TestConditionalOutcomes(unittest.TestCase):
 class TestSoftRejections(unittest.TestCase):
     """Polite declines carry no hard rejection language and fell through to the ack rule.
 
-    Headway's read "we do not feel that we have the best match to move forward with
+    One read "we do not feel that we have the best match to move forward with
     interviews right now... we'll keep your information on file". No "unfortunately", no
     "other candidates", no "not proceeding". It sat in the pipeline as a live application
-    for seven weeks and hid the fact that a Headway slot had been spent.
+    for seven weeks and hid the fact that a capped slot had been spent.
     """
 
     def test_soft_declines_are_rejections(self):

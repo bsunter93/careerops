@@ -67,7 +67,7 @@ def merge_companies(conn, dry=False) -> dict:
     for r in rows:
         new = normalize_company(r["name"])
         # Aliases were applied only in get_or_create_company, so they prevented the next
-        # duplicate but never healed the one already stored. Headway's recruiter mailed
+        # duplicate but never healed the one already stored. A recruiter mailed
         # from findheadway.com, which had created a "Findheadway" row before the alias
         # existed, and the alias alone could not fold it. Apply the map here too, where
         # it is retroactive and idempotent.
@@ -570,12 +570,12 @@ def repair_titles(conn) -> dict:
     application", a bare "position", and eight titles that were just the employer's name.
 
     Renames the role row in place rather than going through `set_identity`, because that
-    folds colliding rows: nine OpenAI applications all point at one role row, and folding
+    folds colliding rows: nine applications at one employer all point at one role row, and folding
     them into an existing "Unknown role" row would delete eight real applications. Where
     such a row already exists, the title is made unique instead so nothing merges. A
     later `dedupe_roles` cannot join them either, for the same reason.
 
-    OpenAI's acknowledgement is the honest case for this: "we will review it for the role
+    That employer's acknowledgement is the honest case for this: "we will review it for the role
     you applied to" names nothing, so no extraction rule could ever recover it. Unknown is
     the correct answer, not a fallback.
     """
@@ -735,7 +735,7 @@ def _compatible(t1: str, t2: str, company: str = "") -> bool:
 def _title_score(title: str, company: str) -> tuple:
     """Rank candidate titles for a merged application. Prefer a specific, properly
     capitalised title over a generic or company-prefixed one: an interview loop that
-    split produced 'Launch PgM', 'program manager' and "Stripe's Program Manager"
+    split produced 'Launch PgM', 'program manager' and "<Employer>'s Program Manager"
     for the same role."""
     t = (title or "").strip()
     low = t.lower()
@@ -751,7 +751,7 @@ def merge_threads(conn, dry: bool = True) -> dict:
     A thread is usually one conversation, so when later messages resolve a slightly
     different title from their body, one interview loop became several advances. But
     Gmail also threads on identical subjects, so two separate applications sharing
-    "Thanks for applying to Stripe!" land in one thread and must not be folded.
+    "Thanks for applying to <Employer>!" land in one thread and must not be folded.
     Events move per thread, never per application: one application can bridge two
     threads, and each of its events belongs with its own conversation.
     """

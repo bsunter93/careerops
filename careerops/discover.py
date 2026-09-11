@@ -249,7 +249,7 @@ def _greenhouse_comp(j: dict):
 def _ashby_comp(j: dict):
     """Ashby publishes the band as structured JSON, not as prose in the description.
 
-    Headway's "Revenue Strategy & Operations Manager (Insights & AI)" pays $121.6K-$190K,
+    One "Revenue Strategy & Operations Manager (Insights & AI)" posting pays $121.6K-$190K,
     and the API said so in compensation.compensationTiers. The parser read only the
     description, which never mentions pay, so comp_max stayed NULL. The comp gate is
     written to let unknown pay through rather than discard a role over a parsing gap, so

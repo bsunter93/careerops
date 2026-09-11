@@ -44,7 +44,7 @@ DEFAULT_QUERY = (
     # walked to a recruiter went unrecorded. Assessment and next-step mail is the same
     # shape, arriving before the vocabulary of "application" shows up.
     'OR referred OR referral OR "next steps" OR assessment OR "your resume" '
-    # A live interview invitation from Headway read "Hello From Headway! We'd Love to
+    # A live interview invitation read "Hello From <Employer>! We'd Love to
     # Chat" and came from the company's own domain, so it failed both arms and was never
     # ingested. Outreach that opens a conversation does not use application vocabulary
     # at all, so the subject arm needs the vocabulary of a first meeting.

@@ -108,7 +108,7 @@ def collect(conn) -> dict:
 
     # A funnel counts what an application EVER reached, not where it sits now. Status is
     # monotonic and rejection outranks interview, so counting current status erased every
-    # loop that ended in a no: two Walmart interviews vanished the moment the rejection
+    # loop that ended in a no: two interviews vanished the moment the rejection
     # landed, and the funnel reported zero advances for 2026.
     adv_ids = {r["application_id"] for r in conn.execute(
         """SELECT DISTINCT application_id FROM events
@@ -248,7 +248,7 @@ def collect(conn) -> dict:
              ORDER BY e2.occurred_at DESC, e2.id DESC LIMIT 1)
         ORDER BY e.occurred_at DESC LIMIT 14""")]
 
-    # Some employers cap applications per window (Headway: 2 per 60 days) and a
+    # Some employers cap applications per window (one allows 2 per 60 days) and a
     # rejection still consumes a slot. Spending one on a 78 before a 85 is posted is a
     # real, irreversible cost, so the cap has to be visible at the moment of choosing.
     limits = {}

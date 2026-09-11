@@ -193,7 +193,7 @@ EVENT_PATTERNS = [
     ("interview_invite",  [r"\binvitation to interview\b", r"\binterview invitation\b",
                            r"\bschedule (?:a|your) (?:call|interview|chat)\b",
                            r"\binterview (?:update|availability|request)\b",
-                           # Headway's invite read "share some dates and times that work
+                           # One invite read "share some dates and times that work
                            # for you for a 30 min zoom call" and linked an Ashby
                            # scheduler. Nothing above matched, so it fell through to ack
                            # on the pleasantry "your application for" and was filed as an
@@ -202,8 +202,8 @@ EVENT_PATTERNS = [
                            # close to proof.
                            r"\bdates and times that work\b",
                            # A recruiter proposing a first call writes neither "schedule
-                           # a call" nor "invitation to interview". Stripe's read
-                           # "Interview Scheduling at Stripe" over "it would be great to
+                           # a call" nor "invitation to interview". One read
+                           # "Interview Scheduling at <Employer>" over "it would be great to
                            # set up time to chat", which scored as a bare acknowledgement
                            # on the pleasantry that opened it.
                            r"\binterview scheduling\b", r"\bscheduling your interview\b",
@@ -232,7 +232,7 @@ EVENT_PATTERNS = [
                            # about an opening"), and treating the pleasantry as the
                            # signal stole those from recruiter_outreach. What separates
                            # an invitation is the concrete artefact: named dates, a
-                           # duration, or a scheduler link. Headway's invite still lands
+                           # duration, or a scheduler link. That invite still lands
                            # on "dates and times that work" and its Ashby meeting URL.
     ("assessment",        [r"\bonline assessment\b", r"\btake[- ]home\b", r"\bcoding challenge\b",
                            r"\bskills assessment\b", r"\bcomplete (?:an|the) assessment\b"]),
@@ -269,7 +269,7 @@ SUBJECT_RULES = [
 ]
 
 # Many ATS acks put the company in the subject and the role only in the body
-# ("Thanks for applying to Stripe!" / "...your application for the Program Manager,
+# ("Thanks for applying to <Employer>!" / "...your application for the Program Manager,
 # GTM Planning role!"). Without these, every such ack collapses onto one application.
 BODY_ROLE_RULES = [
     # "the position/role of X"  (Oracle, Akamai, Amazon)
@@ -488,7 +488,7 @@ def strip_company_suffix(title: Optional[str], company: Optional[str] = None) ->
 ROLE_TAIL = re.compile(r"\s+(?:position|role|opening|req(?:uisition)?|opportunity|job)\b"
                        r"(?:\s+(?:at|with|for|in)\b.*)?$", re.I)
 ROLE_LEAD = re.compile(r"^(?:open|the|our|a|an|this)\s+", re.I)
-# "Stripe's Program Manager". A job title never opens with a possessive, and the employer
+# "<Employer>'s Program Manager". A job title never opens with a possessive, and the employer
 # is already carried on the company column.
 ROLE_POSSESSIVE = re.compile(r"^[A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*){0,2}[\u2019']s\s+")
 
@@ -500,7 +500,7 @@ def _clean_role(s: Optional[str]) -> Optional[str]:
     s = _html.unescape(_html.unescape(s)).replace("\xa0", " ")
     s = re.sub(r"&[a-z]+;|&#\d+;", " ", s)                 # any entity that survived
     s = re.sub(r"^\s*\[[^\]]{1,30}\]\s*", "", s.strip())      # "[Pipeline] Product Manager"
-    s = ROLE_POSSESSIVE.sub("", s.strip())                    # "Stripe's Program Manager"
+    s = ROLE_POSSESSIVE.sub("", s.strip())                    # "<Employer>'s Program Manager"
     s = ROLE_LEAD.sub("", s.strip())                          # "open Staff, Technology Operations"
     s = ROLE_TAIL.sub("", s.strip())                          # "... position at <employer>"
     s = re.sub(r"\s*\(open\)\s*$", "", s.strip(), flags=re.I)
@@ -680,7 +680,7 @@ def _subject_only(subject: str, body: str = "") -> "tuple":
 
     "Next steps" and "availability" are ordinary English. Fortune's newsletter "Next
     steps after SCOTUS strikes down tariffs" became an interview invitation on the first
-    and sat in the funnel for 198 days; a Walmart bounce, "Undeliverable: EXT: Re:
+    and sat in the funnel for 198 days; a bounce, "Undeliverable: EXT: Re:
     Screening Availability", became one on the second. Neither message contains a single
     employment word. Requiring one costs nothing on real mail, which is saturated with
     them, and removes the whole class.
@@ -719,7 +719,7 @@ def _event_type(subject: str, body: str = "") -> "tuple":
         # SUBJECT_ONLY is a fallback tier, not a rival. Its fragments are weak by
         # construction and were never meant to compete: scoring them at 0.45 against a
         # 0.50 floor turned thirty real calendar invitations ("Invitation: Interview
-        # with Included Health") into unresolved. Reach for them only when the scored
+        # with <Employer>") into unresolved. Reach for them only when the scored
         # evidence produced no separable verdict, which is what the old order did.
         etype, elit = _subject_only(subject, body)[:2]
         if etype != "unresolved":

@@ -40,7 +40,7 @@ def classification_drift(conn, limit: int = 0) -> dict:
     Role is compared only against the *earliest* event of an application, because that is
     the one that established its identity. The first version of this check compared every
     event to its application's title and reported 16 findings of which 13 were nonsense:
-    a Stripe application accumulated eight events whose bodies each name a different
+    one application accumulated eight events whose bodies each name a different
     requisition, and a rejection mentioning a sibling posting is not evidence the stored
     title is wrong. A check that cries wolf is worse than no check, because the next real
     finding is read as noise.
