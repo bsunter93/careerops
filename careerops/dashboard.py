@@ -256,6 +256,11 @@ def collect(conn) -> dict:
         pol = json.loads((ROOT / "config.json").read_text()).get("company_policy", {})
     except Exception:
         pol = {}
+    # `min_score` was written into config for two companies and read by nothing. It
+    # reached the fit prompt as prose and never filtered anything, so Do next kept
+    # offering roles at an employer the policy said to stop offering. A rule the code
+    # does not enforce is a comment.
+    floors = {n: r["min_score"] for n, r in pol.items() if r.get("min_score")}
     for name, rules in pol.items():
         lim = rules.get("application_limit")
         if not lim:
@@ -276,7 +281,7 @@ def collect(conn) -> dict:
         limits[name] = {"used": used, "cap": lim["count"], "days": lim["days"], "opens": nxt}
 
     return {
-        "apps": apps, "intel": intel, "recent": recent, "limits": limits,
+        "apps": apps, "intel": intel, "recent": recent, "limits": limits, "floors": floors,
         "funnel": funnel, "aging": aging, "weekly": weekly,
         "fit_hist": fit_hist, "fit_low": fit_low, "companies": companies,
         "totals": {
@@ -945,7 +950,9 @@ const snoozed=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&
 // than on anything about them. Take roughly eight, then finish whichever band that
 // lands in, with a hard ceiling so a busy week cannot turn the list into the table.
 const DN_TARGET=8, DN_MAX=16;
-const ranked=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&!a.snoozed)
+const FLOOR=D.floors||{};
+const ranked=D.apps.filter(a=>a.status==='prospect'&&!a.snoozed
+    && a.fit_score>=Math.max(D.act_score, FLOOR[a.company]||0))
   .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score);
 let dnCut=Math.min(ranked.length,DN_MAX);
 for(let i=DN_TARGET;i<dnCut;i++){
