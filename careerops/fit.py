@@ -64,6 +64,7 @@ strictly: dealbreakers cap the score below 40 regardless of skill match.
 Company: {company}
 Title: {title}
 Location: {location}
+Posted pay band: {comp}
 Description:
 {jd}
 </job>
@@ -140,7 +141,19 @@ def _parse(raw: str) -> Optional[dict]:
 
 
 def score_role(company: str, title: str, location: str, jd: str,
-               profile: Optional[str] = None) -> Optional[dict]:
+               profile: Optional[str] = None,
+               comp_min: Optional[int] = None, comp_max: Optional[int] = None) -> Optional[dict]:
+    """Score one role. The pay band is an argument because it is often not in the text.
+
+    Ashby and Lever carry compensation in a structured field, which `extract_comp` reads
+    into comp_min/comp_max. Those columns were selected for the pre-rank sort and then
+    dropped on the floor before the model saw anything, so every posting whose band lives
+    outside the description body was scored as though its pay were unknown, and judged
+    against the comp and relocation rules on that basis. A $293-325K remote role came back
+    at 28 with "no published salary range to verify it clears the bar" in its own gaps
+    list. Same shape as the bug this function's own comment already describes one level
+    down: a value selected, then not handed to the thing that needs it.
+    """
     if not jd or len(jd) < 200:
         return None                              # no JD, no score. Never guess.
     prof = profile if profile is not None else PROFILE.read_text()
@@ -150,9 +163,15 @@ def score_role(company: str, title: str, location: str, jd: str,
         block = ("<company_policy>\nThis candidate has history with this company. Weigh it.\n"
                  f"History: {pol.get('history','')}\n"
                  f"Rule: {pol.get('rule','')}\n</company_policy>\n\n")
+    if comp_min and comp_max:
+        comp = f"${comp_min:,} to ${comp_max:,} base, from the posting"
+    elif comp_min or comp_max:
+        comp = f"${(comp_min or comp_max):,} base, from the posting (one end only)"
+    else:
+        comp = "not published in a structured field; read the description for it"
     return _parse(_call_claude(PROMPT.format(
         profile=prof, policy=block, company=company, title=title,
-        location=location or "unspecified", jd=jd[:12000])))
+        location=location or "unspecified", comp=comp, jd=jd[:12000])))
 
 
 def score_pending(conn, limit: int = 10, rescore: bool = False) -> dict:
@@ -181,7 +200,8 @@ def score_pending(conn, limit: int = 10, rescore: bool = False) -> dict:
     stats = {"scored": 0, "skipped": 0}
     prof = PROFILE.read_text()
     for r in rows:
-        res = score_role(r["company"], r["title"], r["location"], r["jd_text"], prof)
+        res = score_role(r["company"], r["title"], r["location"], r["jd_text"], prof,
+                         r["comp_min"], r["comp_max"])
         if not res:
             stats["skipped"] += 1
             continue
