@@ -197,9 +197,21 @@ def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = No
         # company's site means the ack usually arrives before `careerops apply` is run.
         # Without this the ack opens a second application beside the prospect, and the
         # same role shows up twice with two different statuses.
+        # The window above is there to tell a genuine re-application apart from a
+        # duplicate email, and it does that badly on its own: an ATS that acknowledges
+        # 30 hours after you submit falls outside it and opens a second row beside the
+        # first. What actually distinguishes the two cases is not elapsed time but
+        # whether the application already has an acknowledgement. A submission still
+        # waiting for one is the submission this ack belongs to, whether it went in
+        # this morning or last week. A genuine re-application is a row of its own and
+        # has no ack either, so preferring the most recent keeps that case right too.
         prospect = conn.execute(
-            """SELECT id FROM applications WHERE role_id = ? AND status = 'prospect'
-               AND submitted_at IS NULL ORDER BY id LIMIT 1""", (role_id,)).fetchone()
+            """SELECT a.id FROM applications a
+               WHERE a.role_id = ? AND a.status IN ('prospect', 'applied')
+                 AND NOT EXISTS (SELECT 1 FROM events e
+                                 WHERE e.application_id = a.id AND e.type = 'ack')
+               ORDER BY COALESCE(a.submitted_at, a.applied_on) DESC, a.id DESC
+               LIMIT 1""", (role_id,)).fetchone()
         if prospect:
             conn.execute(
                 """UPDATE applications SET submitted_at = ?, applied_on = COALESCE(applied_on, ?)
