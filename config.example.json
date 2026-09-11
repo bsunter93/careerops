@@ -1,6 +1,5 @@
 {
   "_comment": "Copy to config.json and edit. config.json is gitignored: it holds your identity and your candid notes about companies.",
-
   "titles": [
     "business operations",
     "strategy and operations",
@@ -16,21 +15,36 @@
     "vice president"
   ],
   "_exclude_note": "Exclude on domain and level, never on job family. Excluding 'technical program manager' wholesale once blocked every monetization TPM role, which was squarely on target.",
-
-  "locations": ["Remote", "United States"],
+  "locations": [
+    "Remote",
+    "United States",
+    "usa",
+    "u.s."
+  ],
   "home_locations": {
-    "remote": ["remote", "distributed", "work from home", "anywhere in the us"],
-    "local": ["your city", "your metro", ", st"],
-    "ambiguous": ["united states", "us", "usa", "multiple locations"]
+    "remote": [
+      "remote",
+      "distributed",
+      "work from home",
+      "anywhere in the us"
+    ],
+    "local": [
+      "your city",
+      "your metro",
+      ", st"
+    ],
+    "ambiguous": [
+      "united states",
+      "us",
+      "usa",
+      "multiple locations"
+    ]
   },
   "_location_note": "A posting matching 'local' or 'remote' passes. An ambiguous national posting passes with a flag, because under-filtering beats hiding a reachable role. A named city elsewhere is concrete, not ambiguous.",
-
   "comp_floor": 150000,
   "_comp_note": "Only a PARSED maximum below this disqualifies. Most postings list no range, and absence must never filter.",
-
   "min_fit_to_surface": 70,
   "default_dormant_days": 21,
-
   "company_policy": {
     "Example Corp": {
       "mode": "conditional",
@@ -42,17 +56,31 @@
     }
   },
   "_policy_note": "dormant_days overrides the default per company. Set it to whatever review window the employer actually states; a fixed 21 marked a live referred application dead.",
-
   "user_identity": {
-    "emails": ["you@example.com"],
-    "names": ["Your Name"]
+    "emails": [
+      "you@example.com"
+    ],
+    "names": [
+      "Your Name"
+    ]
   },
   "_identity_note": "Used to drop your own replies from the event stream. Without it your own sent mail becomes a company.",
-
   "watchlist": [
-    { "company": "Databricks", "board": "greenhouse", "slug": "databricks" },
-    { "company": "Ramp", "board": "ashby", "slug": "ramp" },
-    { "company": "Example", "board": "lever", "slug": "example" }
+    {
+      "company": "Databricks",
+      "board": "greenhouse",
+      "slug": "databricks"
+    },
+    {
+      "company": "Ramp",
+      "board": "ashby",
+      "slug": "ramp"
+    },
+    {
+      "company": "Example",
+      "board": "lever",
+      "slug": "example"
+    }
   ],
   "_watchlist_note": "Public board APIs only: greenhouse, ashby, lever. The slug is the company's handle in that board's URL."
 }
