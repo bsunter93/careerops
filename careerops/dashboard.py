@@ -261,6 +261,20 @@ def collect(conn) -> dict:
     # offering roles at an employer the policy said to stop offering. A rule the code
     # does not enforce is a comment.
     floors = {n: r["min_score"] for n, r in pol.items() if r.get("min_score")}
+
+    # Do not offer a fourth role at an employer already holding three live applications.
+    # This started as a per-company score floor set just above that employer's best open
+    # role, which is a constant standing in for a variable: it breaks when a better role
+    # is posted, and again when one of the applications resolves. The fact worth acting on
+    # is concurrency, and concurrency is already in the event log. Counting it there costs
+    # one query, needs no per-company entry, and heals itself the moment a rejection lands.
+    max_open = cfg_max_open()
+    open_counts = {r["name"]: r["n"] for r in conn.execute("""
+        SELECT c.name, COUNT(*) n FROM applications a
+        JOIN roles r ON r.id = a.role_id JOIN companies c ON c.id = r.company_id
+        WHERE a.status NOT IN ('prospect', 'rejected')
+          AND COALESCE(a.activity, '') != 'dormant'
+        GROUP BY c.name HAVING n >= ?""", (max_open,))}
     for name, rules in pol.items():
         lim = rules.get("application_limit")
         if not lim:
@@ -281,7 +295,7 @@ def collect(conn) -> dict:
         limits[name] = {"used": used, "cap": lim["count"], "days": lim["days"], "opens": nxt}
 
     return {
-        "apps": apps, "intel": intel, "recent": recent, "limits": limits, "floors": floors,
+        "apps": apps, "intel": intel, "recent": recent, "limits": limits, "floors": floors, "openc": open_counts, "max_open": max_open,
         "funnel": funnel, "aging": aging, "weekly": weekly,
         "fit_hist": fit_hist, "fit_low": fit_low, "companies": companies,
         "totals": {
@@ -295,6 +309,20 @@ def collect(conn) -> dict:
         },
         "stale_days": STALE_DAYS, "act_score": ACT_SCORE, "pace": pace,
     }
+
+
+def cfg_max_open(default: int = 3) -> int:
+    """How many live applications at one employer before it stops being offered.
+
+    A global default rather than a per-company rule. The knowledge encoded here is
+    universal (do not scatter a fourth application at an employer already considering
+    three); only the number is a preference, and it is one number for every employer
+    rather than one per employer.
+    """
+    try:
+        return int(json.loads((ROOT / "config.json").read_text()).get("max_open_per_company", default))
+    except Exception:
+        return default
 
 
 def render(data: dict, artifact: bool = False) -> str:
@@ -950,8 +978,11 @@ const snoozed=D.apps.filter(a=>a.status==='prospect'&&a.fit_score>=D.act_score&&
 // than on anything about them. Take roughly eight, then finish whichever band that
 // lands in, with a hard ceiling so a busy week cannot turn the list into the table.
 const DN_TARGET=8, DN_MAX=16;
-const FLOOR=D.floors||{};
-const ranked=D.apps.filter(a=>a.status==='prospect'&&!a.snoozed
+const FLOOR=D.floors||{}, OPENC=D.openc||{};
+const busy=a=>(OPENC[a.company]||0)>=D.max_open;
+const hiddenCos=[...new Set(D.apps.filter(a=>a.status==='prospect'&&!a.snoozed
+    && a.fit_score>=Math.max(D.act_score, FLOOR[a.company]||0) && busy(a)).map(a=>a.company))];
+const ranked=D.apps.filter(a=>a.status==='prospect'&&!a.snoozed&&!busy(a)
     && a.fit_score>=Math.max(D.act_score, FLOOR[a.company]||0))
   .sort((a,b)=>AGE_BAND(a)-AGE_BAND(b) || b.fit_score-a.fit_score);
 let dnCut=Math.min(ranked.length,DN_MAX);
@@ -959,6 +990,7 @@ for(let i=DN_TARGET;i<dnCut;i++){
   if(AGE_BAND(ranked[i])!==AGE_BAND(ranked[i-1])){dnCut=i;break;}}
 const nextUp=ranked.slice(0,dnCut);
 (function(){const c=document.getElementById('dncap'); if(c) c.textContent=
+  (hiddenCos.length?`${hiddenCos.length} employer${hiddenCos.length>1?'s':''} hidden (${hiddenCos.slice(0,4).join(', ')}${hiddenCos.length>4?'\u2026':''}): ${D.max_open}+ applications already open. `:'')+
   `Best ${nextUp.length} of ${T.prospects} prospects, ranked by fit. Open a row for the reasoning, your record there, and sentiment.`;})();
 if(nextUp.length) push({group:'Apply next'});
 let lastBand=-1;
