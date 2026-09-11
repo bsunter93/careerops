@@ -42,3 +42,6 @@ demo-dashboard.html
 
 # The classifier corpus is real mail: subjects, senders and bodies.
 corpus/
+
+# Working briefs, not part of the published project
+notes-*.md

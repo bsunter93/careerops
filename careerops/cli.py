@@ -489,6 +489,12 @@ def cmd_analytics(a):
     print(report(db.connect(a.db)))
 
 
+def cmd_resume_eval(a):
+    """Score bullet selection against what postings ask for. Read-only; prints a table."""
+    from . import evalresume
+    evalresume.run(db.connect(a.db), show_role=a.role)
+
+
 def cmd_corpus(a):
     from . import corpus
     path = a.path or corpus.DEFAULT_PATH
@@ -614,6 +620,9 @@ def main(argv=None):
     rs.add_argument("--verify", action="store_true", help="render through Word; shrink until one page")
     rs.add_argument("--bullets", type=int, help="cap the bullet count directly")
     rs.set_defaults(fn=cmd_resume)
+    re_ = sub.add_parser("resume-eval", help="does bullet selection answer what postings ask for?")
+    re_.add_argument("--role", type=int, help="also print per-requirement coverage for one application id")
+    re_.set_defaults(fn=cmd_resume_eval)
     ap = sub.add_parser("apply"); ap.add_argument("id", type=int)
     ap.add_argument("--date", help="YYYY-MM-DD, defaults to today")
     ap.add_argument("--referral", action="store_true")
