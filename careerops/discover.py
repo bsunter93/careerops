@@ -277,11 +277,54 @@ SALARY_CONTEXT = re.compile(
 MONEY = re.compile(r"\$\s?(\d{2,3})(?:,(\d{3}))?(?:\.\d+)?\s?([kK])?")
 
 
+# Stored descriptions are a mix of stripped text and raw markup, so the label and its
+# numbers may be separated by "</div><div class=\"pay-range\"><span>". Step over tags
+# and entities between the parts, but nothing else: anything looser starts pairing a
+# zone heading with whatever amount happens to appear later in the page.
+_GAP = (r"(?:<[^>]{0,120}>|&nbsp;|&#160;|\s|[:,\-]|approximately|approx\.?|"
+        r"roughly|about|between|starting at|USD|per year|annually){0,12}")
+TIERED = re.compile(
+    r"(?is)(?:zone|tier|region|location\s*(?:group|category))\s*#?\s*(\d)\b"
+    + _GAP + r"(?:pay\s*range|pay|salary|range)?" + _GAP
+    + r"\$\s*([\d,]{6,})" + _GAP
+    + r"(?:&mdash;|&ndash;|[\u2013\u2014-]|to)" + _GAP
+    + r"\$\s*([\d,]{6,})")
+
+
+def comp_tiers(jd: str) -> list:
+    """Every (low, high) a geographically tiered posting actually offers.
+
+    Large employers publish one range per pay zone. Taking the smallest number and
+    the largest number across all of them, which is what a single min/max scan does,
+    produces a band no candidate can be offered: Databricks lists four zones from
+    $130,300 to $223,950, and nobody is eligible for both ends. Once the scorer
+    started reading the stored band, that fiction became an input to a real decision.
+    """
+    out = []
+    for _, lo, hi in TIERED.findall(jd or ""):
+        a, b = int(lo.replace(",", "")), int(hi.replace(",", ""))
+        if 50_000 <= a <= 900_000 and 50_000 <= b <= 900_000 and a < b:
+            out.append((a, b))
+    return out
+
+
 def extract_comp(jd: str):
     """Best-effort (min, max) annual base from JD text. Returns (None, None) when
-    unsure -- a wrong number is worse than no number."""
+    unsure -- a wrong number is worse than no number.
+
+    For a tiered posting, the stored band is the average across zones: the mean of
+    the zone floors and the mean of the zone ceilings. Its midpoint is therefore the
+    midpoint of the zone midpoints, which is the honest default when the zone is not
+    yet known. It anchors where a typical offer would land instead of at an edge
+    nobody is eligible for, and it moves with the tiers rather than being invented.
+    """
     if not jd:
         return (None, None)
+    tiers = comp_tiers(jd)
+    if len(tiers) >= 2:
+        lo = round(sum(t[0] for t in tiers) / len(tiers))
+        hi = round(sum(t[1] for t in tiers) / len(tiers))
+        return (lo, hi)
     vals = []
     for ctx in SALARY_CONTEXT.finditer(jd):
         window = jd[ctx.start(): ctx.start() + 400]

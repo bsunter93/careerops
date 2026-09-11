@@ -206,12 +206,30 @@ def get_or_create_application(conn, role_id: int, applied_on: Optional[str] = No
         # this morning or last week. A genuine re-application is a row of its own and
         # has no ack either, so preferring the most recent keeps that case right too.
         prospect = conn.execute(
-            """SELECT a.id FROM applications a
-               WHERE a.role_id = ? AND a.status IN ('prospect', 'applied')
-                 AND NOT EXISTS (SELECT 1 FROM events e
-                                 WHERE e.application_id = a.id AND e.type = 'ack')
-               ORDER BY COALESCE(a.submitted_at, a.applied_on) DESC, a.id DESC
-               LIMIT 1""", (role_id,)).fetchone()
+            """SELECT id FROM applications WHERE role_id = ? AND status = 'prospect'
+               AND submitted_at IS NULL ORDER BY id LIMIT 1""", (role_id,)).fetchone()
+        # `careerops apply` records a submission you made yourself and writes a
+        # `submitted` event. Until an acknowledgement lands, that row is a submission
+        # waiting for one, and an incoming ack belongs to it however long it took: the
+        # 24 hour window above missed an ATS that acknowledged 25 hours later and opened
+        # a second row beside it.
+        #
+        # The first version of this asked only whether the row had an ack, which is the
+        # same question read too loosely. A row created BY an earlier ack also has no
+        # ack event at the moment the next one is examined, so two genuine submissions
+        # months apart collapsed into one. What separates them is who recorded the
+        # submission: a `submitted` event exists only when you told the system you
+        # applied.
+        if not prospect:
+            prospect = conn.execute(
+                """SELECT a.id FROM applications a
+                   WHERE a.role_id = ?
+                     AND EXISTS (SELECT 1 FROM events e
+                                 WHERE e.application_id = a.id AND e.type = 'submitted')
+                     AND NOT EXISTS (SELECT 1 FROM events e
+                                     WHERE e.application_id = a.id AND e.type = 'ack')
+                   ORDER BY COALESCE(a.submitted_at, a.applied_on) DESC, a.id DESC
+                   LIMIT 1""", (role_id,)).fetchone()
         if prospect:
             conn.execute(
                 """UPDATE applications SET submitted_at = ?, applied_on = COALESCE(applied_on, ?)
