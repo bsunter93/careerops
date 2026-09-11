@@ -47,6 +47,47 @@ AGGREGATOR_DOMAINS = {"ladders.com", "theladders.com", "linkedin.com", "indeed.c
                       # "reaching out to you because", same as a recruiter would.
                       "connectingcolorado.gov"}
 
+# LinkedIn stamps the kind of mail into its own tracking links, and it is the only
+# reliable thing in the message. Easy Apply outcome mail is truncated by the 2,000
+# character body cap before the employer's words appear, so the stored body ends at the
+# footer and nothing is left to read: "Your application to X at Y" could be an
+# acknowledgement or a rejection and the text cannot tell you which. Classifying these
+# on the subject alone filed 72 real rejections as acknowledgements in one pass.
+#
+# The token is authoritative because LinkedIn wrote it to route its own analytics.
+LINKEDIN_KIND = re.compile(r"email_jobs?_([a-z_]+?)_\d\d")
+LINKEDIN_EVENT = {
+    "application_rejected": ("rejection", 0.95),
+    # "viewed" is a recruiter opening the file, not a decision, and the funnel counts
+    # decisions. It stays noise rather than becoming a phantom advance.
+}
+
+# An aggregator domain carries two kinds of mail and only one of them is noise. Job
+# alerts ("Optum is hiring for a Healthcare role") are noise, and blanket-discarding the
+# domain was the cheap way to be rid of them. But Easy Apply makes the aggregator the
+# transport for the employer's own decision: the submission receipt and the rejection
+# both arrive from jobs-noreply@linkedin.com, and both were thrown away at 0.90
+# confidence. 56 real application events sat in the store as noise, including four
+# submissions on one day and a rejection for a Chief of Staff role in Boulder.
+#
+# Matched against the SUBJECT only. An alert's subject never claims to be about an
+# application, while a footer three screens down might.
+# Anchored to the start of the subject, allowing only a "Benjamin," style salutation
+# in front. A service that applies on your behalf writes "Apply4Me: We're Working on
+# Your Application to Thumbtack", which contains the phrase and is not an employer
+# saying anything: they have not sent it yet. The employer's own mail leads with it.
+AGGREGATOR_APPLICATION = re.compile(
+    r"(?i)(?:\bapplication for\b"
+    r"|^(?:[\w.'\-]+,\s*)?your application (?:to|status|update)\b"
+    r"|^(?:[\w.'\-]+,\s*)?your update from\b"
+    r"|^(?:[\w.'\-]+,\s*)?update (?:on|from) your application\b)")
+# Deliberately absent: "Benjamin, your application was sent to TikTok". That is the
+# aggregator confirming it transmitted the form, not the employer saying anything, and
+# it carries no information the sender did not already have. Admitting it would put 46
+# receipts into the review queue and raise the application count with submissions that
+# have no employer engagement behind them, which flatters nothing and costs triage.
+# The employer's reply arrives separately and is caught above.
+
 # Personal/transactional mail. Checked against SUBJECT + SENDER only: ATS footers
 # routinely contain "subscription", "payment", "order", so body-scanning them
 # silently discards real applications.
@@ -251,6 +292,13 @@ EVENT_PATTERNS = [
 
 # Subject shapes -> (company, role). Tried in order.
 SUBJECT_RULES = [
+    # LinkedIn Easy Apply writes the employer into the subject and signs the mail as
+    # itself, so the sender says nothing about who decided. Both of its forms are here,
+    # ahead of the generic rules: "your application to <role> at <company>" otherwise
+    # reads the whole tail as the company, and "your application was sent to <company>"
+    # falls through to the sender and files the employer as LinkedIn.
+    (r"^your application to\s+(?P<role>.+?)\s+at\s+(?P<company>[^,]+?)[.!]?$",           0.93),
+    (r"^your update from\s+(?P<company>.+?)[.!]?$",                                     0.88),
     (r"we[’'`]?ve received your application for (?P<role>.+?) at (?P<company>.+?)[.!]?$", 0.95),
     (r"thank you for your application to (?P<company>.+?)\s+for\s+(?P<role>.+?)[.!]?$",   0.95),
     (r"application received\s*[-–]\s*(?P<role>.+?) at (?P<company>.+?)[.!]?$",            0.95),
@@ -764,7 +812,28 @@ def classify(subject: str, sender: str = "", body: str = "") -> Classification:
             c.event_type, c.confidence = "noise", 0.98
             c.reasons.append("noise:" + p)
             return c
-    if _in(dom, AGGREGATOR_DOMAINS) and not re.search(r"application for", low):
+    kinds = LINKEDIN_KIND.findall(body or "") if _in(dom, {"linkedin.com"}) else []
+    if kinds:
+        hit = next((k for k in kinds if k in LINKEDIN_EVENT), None)
+        if hit:
+            c.event_type, c.confidence = LINKEDIN_EVENT[hit]
+            c.reasons.append("linkedin-kind:" + hit)
+            for rx, _conf in SUBJECT_RULES:
+                g = re.search(rx, subject, re.I)
+                if g and g.groupdict():
+                    c.company = _clean_company(g.groupdict().get("company")) or c.company
+                    c.role = _clean_role(g.groupdict().get("role")) or c.role
+                    if c.company:
+                        break
+            c.role = strip_company_suffix(c.role, c.company)
+            return c
+        # LinkedIn named the mail and it is not a decision (a digest, an alert, a
+        # recruiter opening the file). Its own label outranks whatever the subject
+        # looks like, so stop here rather than letting the subject promote it.
+        c.event_type, c.confidence = "noise", 0.92
+        c.reasons.append("linkedin-kind:" + kinds[0])
+        return c
+    if _in(dom, AGGREGATOR_DOMAINS) and not AGGREGATOR_APPLICATION.search(low):
         c.event_type, c.confidence = "noise", 0.90
         c.reasons.append("aggregator:" + dom)
         return c
