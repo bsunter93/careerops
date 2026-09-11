@@ -210,7 +210,22 @@ EVENT_PATTERNS = [
                            r"\bset up (?:some )?time to (?:chat|talk|speak|connect|meet)\b",
                            r"\bshare (?:some )?(?:dates|times|your availability)\b",
                            r"\b\d{1,2}\s?-?\s?min(?:ute)?s?\s+(?:zoom|phone|video|intro|initial)?\s*(?:call|chat|meeting|conversation)\b",
-                           r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)"]),
+                           r"(?:calendly\.com|ashbyhq\.com/meeting|savvycal\.com|hubspot\.com/meetings)",
+                           # One invite opened "Thank you for your interest in <Employer>!"
+                           # and that ack phrase won outright, so the subject "Availability
+                           # Request" never got read: SUBJECT_ONLY is a fallback consulted
+                           # only when nothing separable wins. A live recruiter screen sat
+                           # on the board as an acknowledgement. Three forms were missing,
+                           # and all three are things only an invitation says.
+                           #
+                           # 1. Naming the interview process as the thing being entered.
+                           r"\bmov(?:e|ing) forward with (?:the|your|our) interview\b",
+                           # 2. "schedule an initial 30 minute Recruiter video call" put
+                           #    five words between the verb and the noun, where the
+                           #    existing pattern allowed none.
+                           r"\bschedule (?:an?|your)\s+(?:\w+[ -]){0,5}?(?:call|interview|chat|screen|conversation)\b",
+                           # 3. Asking for slots is asking to book, whatever surrounds it.
+                           r"\btime slots?\b"]),
                            # "would love to connect" is deliberately NOT here. A cold
                            # recruiter opens with it as readily as someone proposing a
                            # time ("I came across your profile and would love to connect
