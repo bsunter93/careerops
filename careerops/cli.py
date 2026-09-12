@@ -540,6 +540,20 @@ def cmd_drift(a):
     return 1 if total else 0
 
 
+def cmd_auth(a):
+    """Mint Gmail credentials through the browser. The only interactive command."""
+    from .gmail import authorize, TOKEN
+    if a.force and TOKEN.exists():
+        bak = TOKEN.with_suffix(".json.bak")
+        TOKEN.replace(bak)
+        print(f"moved existing token to {bak.name}")
+    creds = authorize(interactive=True)
+    print("authorized" if creds and creds.valid else "failed")
+    print("If this keeps expiring, publish the OAuth consent screen: Google revokes")
+    print("refresh tokens every 7 days while the app is in Testing.")
+    return 0
+
+
 def cmd_doctor(a):
     import pathlib, importlib, os
     root = pathlib.Path(__file__).resolve().parent.parent
@@ -548,7 +562,11 @@ def cmd_doctor(a):
     print(ok((root/"profile.md").exists()), "profile.md")
     print(ok((root/"config.json").exists()), "config.json")
     print(ok((root/"credentials.json").exists()), "credentials.json (Gmail OAuth)")
-    print(ok((root/"token.json").exists()), "token.json (Gmail authorized)")
+    from .gmail import token_status
+    st = token_status()
+    print(ok(st == "authorized"), f"token.json (Gmail {st})")
+    if st != "authorized":
+        print("     fix: ./.venv/bin/python -m careerops.cli auth")
     for m in ("googleapiclient", "google_auth_oauthlib"):
         try:
             importlib.import_module(m); print("OK ", m)
@@ -596,6 +614,9 @@ def main(argv=None):
     dr = sub.add_parser("drift", help="does stored data still agree with the code?")
     dr.add_argument("--show", type=int, default=6, help="examples to print per finding")
     dr.set_defaults(fn=cmd_drift)
+    au = sub.add_parser("auth", help="authorize Gmail in a browser (run when the token expires)")
+    au.add_argument("--force", action="store_true", help="discard the existing token first")
+    au.set_defaults(fn=cmd_auth)
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
     sv = sub.add_parser("serve", help="local server powering the dashboard resume buttons")

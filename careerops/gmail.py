@@ -67,30 +67,83 @@ DEFAULT_QUERY = (
 )
 
 
-def _service():
+class AuthExpired(SystemExit):
+    """Gmail authorization is gone and this process cannot ask for it.
+
+    Google revokes refresh tokens after seven days while the OAuth consent
+    screen is in Testing, so this fires on a weekly clock until the app is
+    published. Raised instead of the raw RefreshError so the daily job says
+    what to do rather than printing a stack trace.
+    """
+
+
+def authorize(interactive: bool = True):
+    """Return valid credentials, minting them through the browser if allowed.
+
+    Order: load, refresh, then the consent flow. A revoked refresh token
+    raises RefreshError on refresh, which is recoverable only by re-consenting,
+    so it falls through rather than ending the run.
+    """
+    from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
 
     creds = None
     if TOKEN.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+        try:
+            creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+        except ValueError:
+            creds = None  # truncated or hand-edited file; re-consent
+    if creds and not creds.valid and creds.expired and creds.refresh_token:
+        try:
             creds.refresh(Request())
-        else:
-            if not CREDS.exists():
-                raise SystemExit(f"Missing {CREDS}. See README (Gmail setup).")
-            flow = InstalledAppFlow.from_client_secrets_file(str(CREDS), SCOPES)
-            # Fixed port + explicit URL: auto-launch is unreliable, and a random
-            # port makes the loopback redirect hard to diagnose when it fails.
-            port = int(os.environ.get("CAREEROPS_OAUTH_PORT", "8765"))
-            print("\n>>> OPEN THIS URL IN YOUR BROWSER:\n", flush=True)
-            creds = flow.run_local_server(port=port, open_browser=True,
-                                          authorization_prompt_message="AUTH_URL: {url}\n",
-                                          success_message="Authorized. You can close this tab.")
-        TOKEN.write_text(creds.to_json())
+            TOKEN.write_text(creds.to_json())
+        except RefreshError:
+            creds = None
+    if creds and creds.valid:
+        return creds
+
+    if not interactive:
+        raise AuthExpired(
+            "Gmail authorization has expired or been revoked.\n"
+            "  Run:  ./.venv/bin/python -m careerops.cli auth\n"
+            "  Then: publish the OAuth consent screen so this stops recurring.\n"
+            "        Google revokes refresh tokens every 7 days while it is in Testing.")
+    if not CREDS.exists():
+        raise SystemExit(f"Missing {CREDS}. See README (Gmail setup).")
+
+    flow = InstalledAppFlow.from_client_secrets_file(str(CREDS), SCOPES)
+    # Fixed port + explicit URL: auto-launch is unreliable, and a random
+    # port makes the loopback redirect hard to diagnose when it fails.
+    port = int(os.environ.get("CAREEROPS_OAUTH_PORT", "8765"))
+    print("\n>>> OPEN THIS URL IN YOUR BROWSER:\n", flush=True)
+    creds = flow.run_local_server(port=port, open_browser=True,
+                                  authorization_prompt_message="AUTH_URL: {url}\n",
+                                  success_message="Authorized. You can close this tab.")
+    TOKEN.write_text(creds.to_json())
+    return creds
+
+
+def token_status() -> str:
+    """One line for doctor. Checks the token actually works, not that a file exists."""
+    if not TOKEN.exists():
+        return "missing"
+    try:
+        creds = authorize(interactive=False)
+    except AuthExpired:
+        return "expired or revoked"
+    except SystemExit as e:
+        return str(e).splitlines()[0]
+    except Exception as e:                      # network down, clock skew, malformed file
+        return f"unusable ({type(e).__name__})"
+    return "authorized" if creds and creds.valid else "unusable"
+
+
+def _service(interactive: bool = False):
+    """Gmail client. Background runs never open a browser; they raise AuthExpired."""
+    from googleapiclient.discovery import build
+    creds = authorize(interactive=interactive)
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
