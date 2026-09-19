@@ -33,7 +33,7 @@ class TestClassify(unittest.TestCase):
         self.assertIsNotNone(c.trigger)
 
     def test_low_confidence_goes_to_review(self):
-        self.assertTrue(classify("for Job #26", "HumanResources@ustechsolutions.com").needs_review)
+        self.assertTrue(classify("for Job #26", "HumanResources@northwind.com").needs_review)
 
     def test_blacklist_scoped_to_subject_not_body(self):
         # ATS footers say "subscription"; that must not discard a real ack
@@ -210,13 +210,13 @@ class TestStaffingAndIdentity(unittest.TestCase):
     def test_contract_body_shop_is_noise(self):
         c = classify(
             "Interview next week/ IT Program Manager: Mountain View, CA-Hybrid-3x.week",
-            "Rhythm Arora <rhythm.arora@agamasolutions.com>",
+            "Priya Raman <priya.raman@fabrikam.com>",
             "urgent requirement as below. W2 or C2C-if you have own corp. Duration: 18+ months Contract")
         self.assertEqual(c.event_type, "noise")
 
     def test_right_to_represent_is_noise(self):
         c = classify("RTR :: Position with client Ebay for the Business Operation Analyst",
-                     "Venkata <venkata@dewsoftware.com>",
+                     "Suresh Iyer <suresh@contoso.com>",
                      "Please confirm the below RTR. Hourly Rate: $50")
         self.assertEqual(c.event_type, "noise")
 
@@ -269,7 +269,7 @@ class TestAckBlocksPromotion(unittest.TestCase):
                              "ack", subj)
 
     def test_genuine_recruiter_outreach_survives(self):
-        c = classify("Included Health - Intro to Recruiter", "hm@includedhealth.com",
+        c = classify("Litware - Intro to Recruiter", "hm@litware.com",
                      "I wanted to connect you with our recruiter for this role")
         self.assertEqual(c.event_type, "recruiter_outreach")
 
