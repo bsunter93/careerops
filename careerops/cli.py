@@ -602,7 +602,8 @@ def main(argv=None):
     ev = sub.add_parser("event")
     ev.add_argument("company"); ev.add_argument("role")
     ev.add_argument("--type", required=True,
-                    choices=["ack","rejection","interview_invite","assessment","recruiter_outreach","offer"])
+                    choices=["ack","rejection","interview_invite","assessment","recruiter_outreach","offer",
+                             "withdrawal"])
     ev.add_argument("--date"); ev.add_argument("--applied"); ev.add_argument("--note")
     ev.set_defaults(fn=cmd_event)
     wy = sub.add_parser("why"); wy.add_argument("id", type=int); wy.set_defaults(fn=cmd_why)

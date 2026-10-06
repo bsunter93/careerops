@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
   id             INTEGER PRIMARY KEY,
   application_id INTEGER REFERENCES applications(id) ON DELETE CASCADE,
   occurred_at    TEXT NOT NULL,
-  type           TEXT NOT NULL,    -- ack|rejection|interview_invite|recruiter_outreach|assessment|offer|noise|unresolved
+  type           TEXT NOT NULL,    -- ack|rejection|interview_invite|recruiter_outreach|assessment|offer|withdrawal|noise|unresolved
   confidence     REAL NOT NULL DEFAULT 1.0,
   source         TEXT NOT NULL,    -- gmail|csv|manual
   external_id    TEXT UNIQUE,      -- gmail message id -> idempotent ingestion

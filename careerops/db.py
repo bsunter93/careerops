@@ -50,6 +50,9 @@ EVENT_TO_STATUS = {
     "interview_invite": "interview",
     "offer": "offer",
     "rejection": "rejected",
+    # Manual only: the candidate closing a process. Ranks with rejected (5) so it closes
+    # the row, but stays out of the rejection count.
+    "withdrawal": "withdrawn",
 }
 
 
