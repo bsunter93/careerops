@@ -138,3 +138,18 @@ CREATE TABLE IF NOT EXISTS company_intel (
   sources        TEXT,      -- JSON array of {title,url}
   fetched_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Every public ATS board harvested from the Common Crawl index (see universe.py).
+-- Discovery polls these alongside the watchlist; misses rests a board that keeps
+-- coming back empty so the sweep is not spent on companies that are not hiring.
+CREATE TABLE IF NOT EXISTS boards (
+  board        TEXT NOT NULL,        -- ashby|greenhouse|lever
+  slug         TEXT NOT NULL,
+  company      TEXT,                 -- display name once the board reports one
+  source       TEXT NOT NULL,        -- commoncrawl:<index>
+  first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_checked TEXT,
+  last_jobs    INTEGER,
+  misses       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (board, slug)
+);

@@ -211,9 +211,16 @@ def cmd_discover(a):
         for x in e.get("added", []):
             print(f"  + watchlist: {x}")
         cfg = _config()          # reload: expand() may have appended boards
-    s = discover(conn, cfg["watchlist"], cfg["titles"], cfg["locations"],
+    boards, prefetched = cfg["watchlist"], None
+    if getattr(a, "universe", False) or cfg.get("universe", False):
+        from . import universe
+        boards = universe.boards_to_poll(conn, cfg["watchlist"])
+        prefetched, u = universe.prefetch(conn, boards, cfg["titles"], cfg.get("exclude_titles", []))
+        print("universe: " + "  ".join(f"{k}={v}" for k, v in u.items()))
+    s = discover(conn, boards, cfg["titles"], cfg["locations"],
                  cfg.get("exclude_titles", []), cfg.get("comp_floor", 0),
-                 cfg.get("relocation"), cfg.get("exclude_domains", []))
+                 cfg.get("relocation"), cfg.get("exclude_domains", []),
+                 prefetched=prefetched)
     failed = s.pop("failed", [])
     unscored, unscorable = s.pop("unscored", 0), s.pop("unscorable", 0)
     print("  ".join(f"{k}={v}" for k, v in s.items()))
@@ -223,6 +230,21 @@ def cmd_discover(a):
         print(f"unscorable={unscorable}  (no usable JD text; these will never surface)")
     if failed:
         print("unreachable: " + ", ".join(failed))
+
+
+def cmd_universe(a):
+    """Harvest board slugs from Common Crawl, or report on the boards already held."""
+    from . import universe
+    conn = db.connect(a.db); db.init(conn)
+    if a.harvest:
+        indexes = a.index or universe.latest_indexes(a.indexes)
+        r = universe.harvest(indexes, max_pages=a.max_pages)
+        added = universe.store(conn, r["found"], "commoncrawl:" + indexes[0])
+        print("harvested: " + "  ".join(f"{b}={len(v)}" for b, v in r["found"].items())
+              + f"  new_boards={added}  indexes={','.join(indexes)}")
+        for x in r["stopped"]:
+            print(f"  stopped {x}")
+    print("boards: " + "  ".join(f"{k}={v}" for k, v in universe.summary(conn).items()))
 
 
 def cmd_fit(a):
@@ -246,7 +268,8 @@ def cmd_prospects(a):
     rows = conn.execute("""
         SELECT a.id, c.name company, r.title, r.location, a.fit_score, r.url,
                CAST(julianday('now') - julianday(r.posted_at) AS INT) age,
-               json_extract(a.fit_reasoning, '$.one_line') one_line
+               CASE WHEN json_valid(a.fit_reasoning)
+                    THEN json_extract(a.fit_reasoning, '$.one_line') END one_line
         FROM applications a
         JOIN roles r     ON r.id = a.role_id
         JOIN companies c ON c.id = r.company_id
@@ -629,7 +652,16 @@ def main(argv=None):
     d.add_argument("--broad", action="store_true",
                    help="also sweep open aggregator feeds and promote any new employer "
                         "onto the watchlist, so its board is polled directly next run")
+    d.add_argument("--universe", action="store_true",
+                   help="also poll every harvested board (see `universe --harvest`); "
+                        "config.json `universe: true` turns this on for every run")
     d.set_defaults(fn=cmd_discover)
+    un = sub.add_parser("universe", help="every public Ashby/Greenhouse/Lever board, from Common Crawl")
+    un.add_argument("--harvest", action="store_true", help="read slugs from the crawl index")
+    un.add_argument("--index", action="append", help="a crawl id such as CC-MAIN-2026-39; repeatable")
+    un.add_argument("--indexes", type=int, default=3, help="how many recent crawls to read")
+    un.add_argument("--max-pages", type=int, default=None)
+    un.set_defaults(fn=cmd_universe)
     ft = sub.add_parser("fit"); ft.add_argument("--limit", type=int, default=10)
     ft.add_argument("--rescore", action="store_true"); ft.set_defaults(fn=cmd_fit)
     pr = sub.add_parser("prospects"); pr.add_argument("--limit", type=int, default=20)

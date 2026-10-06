@@ -449,16 +449,27 @@ def _worth_relocating(title_low: str, loc_low: str, rules: "Optional[dict]",
 def discover(conn, watchlist: list, titles: list, locations: list,
              excludes: list = (), comp_floor: int = 0,
              relocation: "Optional[dict]" = None,
-             exclude_domains: list = ()) -> dict:
-    """watchlist: [{"company": "Databricks", "board": "greenhouse", "slug": "databricks"}, ...]"""
+             exclude_domains: list = (), prefetched: "Optional[dict]" = None) -> dict:
+    """watchlist: [{"company": "Databricks", "board": "greenhouse", "slug": "databricks"}, ...]
+
+    prefetched maps (board, slug) to jobs a universe sweep already pulled. Those boards
+    are not fetched again, and an empty one is not reported as unreachable: most of the
+    universe is companies with nothing open, and universe.prefetch tracks that per board.
+    """
     stats = {"boards": 0, "fetched": 0, "matched": 0, "new": 0,
              "excluded_title": 0, "below_comp": 0, "failed": []}
     for w in watchlist:
         stats["boards"] += 1
-        jobs = fetch(w["board"], w["slug"], titles)
-        if not jobs:
-            stats["failed"].append(f'{w["company"]}({w["board"]}:{w["slug"]})')
-            continue
+        key = (w["board"], w["slug"])
+        if prefetched is not None and key in prefetched:
+            jobs = prefetched[key]
+            if not jobs:
+                continue
+        else:
+            jobs = fetch(w["board"], w["slug"], titles)
+            if not jobs:
+                stats["failed"].append(f'{w["company"]}({w["board"]}:{w["slug"]})')
+                continue
         stats["fetched"] += len(jobs)
         cid = db.get_or_create_company(conn, w["company"])
         for j in jobs:
