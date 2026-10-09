@@ -230,6 +230,26 @@ def cmd_discover(a):
         print(f"unscorable={unscorable}  (no usable JD text; these will never surface)")
     if failed:
         print("unreachable: " + ", ".join(failed))
+    # The retroactive half of the listing rule, for stored roles the sweep did not refresh.
+    from .listing import backfill
+    b = backfill(conn, only_unlisted=True)
+    if b["changed"]:
+        print(f"listing pages applied to {len(b['changed'])} stored role(s)")
+
+
+def cmd_listing(a):
+    """Read the employer's listing page for every stored role whose board feed leaves out
+    remote eligibility and pay (Stripe), and write what it says. --dry-run prints the
+    changes and writes nothing. Changed roles keep their old fit score until rescored."""
+    from .listing import backfill
+    conn = db.connect(a.db)
+    b = backfill(conn, write=not a.dry_run)
+    print(f"checked={b['checked']}  changed={len(b['changed'])}  "
+          f"no listing page={len(b['unanswered'])}" + ("  (dry run)" if a.dry_run else ""))
+    for rid, old, new in b["changed"]:
+        print(f"  [{rid}] {old['location']}  ->  {new['location']}")
+        if (old["comp_min"], old["comp_max"]) != (new["comp_min"], new["comp_max"]):
+            print(f"        pay {old['comp_min']}-{old['comp_max']}  ->  {new['comp_min']}-{new['comp_max']}")
 
 
 def cmd_universe(a):
@@ -656,6 +676,9 @@ def main(argv=None):
                    help="also poll every harvested board (see `universe --harvest`); "
                         "config.json `universe: true` turns this on for every run")
     d.set_defaults(fn=cmd_discover)
+    ls = sub.add_parser("listing", help="apply Stripe's listing pages (remote, offices, pay) to stored roles")
+    ls.add_argument("--dry-run", action="store_true", help="print the changes, write nothing")
+    ls.set_defaults(fn=cmd_listing)
     un = sub.add_parser("universe", help="every public Ashby/Greenhouse/Lever board, from Common Crawl")
     un.add_argument("--harvest", action="store_true", help="read slugs from the crawl index")
     un.add_argument("--index", action="append", help="a crawl id such as CC-MAIN-2026-39; repeatable")

@@ -455,6 +455,23 @@ roles as `below_comp` that had been passing unexamined, several of them scoring 
 80s on fit alone. `_ashby_comp()` takes USD annual salary components only: an hourly or
 monthly band is not a floor comparison, so it is skipped rather than guessed at.
 
+**Some feeds are wrong about location, and the employer's page is the only source.**
+Stripe's Greenhouse feed gives a free-text location such as "NYC, SF, Chicago, Seattle,
+US" and no pay. stripe.com/jobs/listing/x/<gh_jid> renders "Office locations", "Remote
+location | Remote in United States" when the role is remote-eligible, and the US base
+range, and carries the same facts as a schema.org JobPosting block. Of 28 stored roles
+with a live page on 2026-10-09, the feed named no remote option on 7 the page lists as
+remote-eligible and named one on 3 the page lists as office-only. 27 had no pay, and the
+page supplied a USD band for 25 (the other two pay in CAD). One posting scored 15 as
+onsite and 80 once the page's fields were read. `listing.py` reads the page for every
+Stripe title that passes the title gate, before the location gate runs, and the page's
+fields replace the feed's location. Appending would have left "Remote" on the three
+office-only roles. Against that day's feed, the corrected gate drops 7 postings it had
+been admitting and admits 1 it had been hiding. A page that 404s (a closed posting)
+or yields no fields changes nothing. `discover` applies the page to every listed role on
+each run and backfills stored roles no page has answered yet; `careerops listing` reruns
+the full backfill, and drift reports open Stripe roles still on the feed's values.
+
 **Fit and level pull in opposite directions, and nothing corrects for it.** A
 well-written description for a role a level below the candidate matches their background
 *better*, not worse, because they have done all of it. The two highest-fit roles at one
@@ -892,12 +909,12 @@ and fit before the dashboard, which is a pure projection and must run last.
 
 ```
 doctor · validate · init · ingest-csv · sync · reclassify · resolve
-discover · fit [--rescore] · prospects · resume <id> · corpus [--export]
+discover · listing [--dry-run] · fit [--rescore] · prospects · resume <id> · corpus [--export]
 snooze <id> [--days N | --until DATE | --clear]
 intel [--limit N] [--company X] [--refresh] [--show]
 pipeline · why <id> · event · review · stats · analytics · dashboard [--artifact]
 ```
 
-Tests: `python3 -m unittest discover -s tests -v` (94 tests) and `careerops corpus` (886
+Tests: `python3 -m unittest discover -s tests -v` (137 tests) and `careerops corpus` (886
 labelled messages). Run both before and after any change to `classify.py`. See "Two
 guards, and neither is sufficient" above for why one passing means nothing.

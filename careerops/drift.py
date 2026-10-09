@@ -88,6 +88,17 @@ def comp_drift(conn) -> list:
     return out
 
 
+def listing_drift(conn) -> list:
+    """An open Stripe role still judged on the Greenhouse feed's location, with no remote
+    flag and usually no band, because its listing page was never read. One such role
+    scored 15 as onsite; its page said remote in the US at $189,400-$284,000 and it
+    scored 80. Healing is `careerops listing`. A role listed here whose page 404s is a
+    closed posting that liveness has not marked yet."""
+    from .listing import unlisted_sql
+    return [(r["id"], (r["title"] or "")[:44], r["location"])
+            for r in _rows(conn, f"SELECT id, title, location FROM roles WHERE {unlisted_sql(conn)}")]
+
+
 def alias_drift(conn) -> list:
     """A stored company that an alias says should be called something else."""
     from . import db
@@ -163,6 +174,7 @@ def run(conn) -> dict:
         "event type": c["type_mismatch"],
         "event role": c["role_mismatch"],
         "unread pay band": comp_drift(conn),
+        "unread listing page": listing_drift(conn),
         "unapplied alias": alias_drift(conn),
         "title without a role": title_drift(conn),
         "outreach-only application": evidence_drift(conn),

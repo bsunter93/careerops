@@ -456,6 +456,7 @@ def discover(conn, watchlist: list, titles: list, locations: list,
     are not fetched again, and an empty one is not reported as unreachable: most of the
     universe is companies with nothing open, and universe.prefetch tracks that per board.
     """
+    from . import listing
     stats = {"boards": 0, "fetched": 0, "matched": 0, "new": 0,
              "excluded_title": 0, "below_comp": 0, "failed": []}
     for w in watchlist:
@@ -483,6 +484,12 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             if any(x.lower() in t for x in excludes):
                 stats["excluded_title"] += 1
                 continue
+            # Stripe's feed carries neither remote eligibility nor pay, so the location
+            # gate below would judge its roles on a string the listing page contradicts.
+            # Only titles that could match cost a page request.
+            if (listing.covers(w["board"], w["slug"])
+                    and matches(j, titles, (), excludes, exclude_domains=exclude_domains)):
+                listing.enrich(j)
             # Comp is parsed before matching now: the relocation rule needs the number
             # to decide whether a role outside the home market is worth moving for.
             jd = j.get("jd_text") or ""
@@ -508,7 +515,7 @@ def discover(conn, watchlist: list, titles: list, locations: list,
             # field was added, which made a 686-event backfill a silent no-op.
             h = hashlib.sha1((j.get("title", "") + jd).encode()).hexdigest()[:16]
             existing = conn.execute(
-                "SELECT id, jd_hash FROM roles WHERE company_id=? AND title=? COLLATE NOCASE",
+                "SELECT id, jd_hash, url FROM roles WHERE company_id=? AND title=? COLLATE NOCASE",
                 (cid, j["title"])).fetchone()
             if existing:
                 conn.execute("UPDATE roles SET posted_at = COALESCE(?, posted_at) WHERE id=?",
@@ -517,13 +524,22 @@ def discover(conn, watchlist: list, titles: list, locations: list,
                     conn.execute("""UPDATE roles SET comp_min=COALESCE(comp_min,?),
                                     comp_max=COALESCE(comp_max,?) WHERE id=?""",
                                  (cmin, cmax, existing["id"]))
+                owner = existing["url"]
                 if existing["jd_hash"] != h:
                     conn.execute("UPDATE roles SET jd_text=?, jd_hash=?, url=?, location=? WHERE id=?",
                                  (jd, h, j.get("url"), j.get("location"), existing["id"]))
+                    owner = j.get("url")
+                # Unconditional, unlike the two above, because the listing page outranks
+                # what is stored. Only from the posting the row points at: Stripe runs
+                # same-title postings in several countries, and one role row per title.
+                if j.get("listed") and listing.stripe_jid(owner) in (None, j.get("external_id")):
+                    listing.store(conn, existing["id"], j)
                 continue
-            db.get_or_create_role(conn, cid, j["title"], location=j.get("location"),
-                                  source=w["board"], url=j.get("url"), jd_text=jd, jd_hash=h,
-                                  comp_min=cmin, comp_max=cmax, posted_at=j.get("posted_at"))
+            rid = db.get_or_create_role(conn, cid, j["title"], location=j.get("location"),
+                                        source=w["board"], url=j.get("url"), jd_text=jd, jd_hash=h,
+                                        comp_min=cmin, comp_max=cmax, posted_at=j.get("posted_at"))
+            if j.get("listed"):
+                listing.store(conn, rid, j)
             stats["new"] += 1
     conn.commit()
     stats.update(scoring_backlog(conn))
